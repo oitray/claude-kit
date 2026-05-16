@@ -1,0 +1,35 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "{{BOT_APP_ID}}",
+  "packageName": "com.example.{{BOT_NAME}}",
+  "developer": {
+    "name": "Your Name",
+    "websiteUrl": "https://example.com",
+    "privacyUrl": "https://example.com/privacy",
+    "termsOfUseUrl": "https://example.com/terms"
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "name": {
+    "short": "{{BOT_NAME}}",
+    "full": "{{BOT_NAME}} — Claude DM bot"
+  },
+  "description": {
+    "short": "DMs from Claude land here",
+    "full": "Personal bot that receives outbound DMs from Claude Code sessions on your machine via Microsoft Bot Framework."
+  },
+  "accentColor": "#FF5733",
+  "bots": [
+    {
+      "botId": "{{BOT_APP_ID}}",
+      "scopes": ["personal"],
+      "supportsFiles": false
+    }
+  ],
+  "permissions": ["identity"],
+  "validDomains": []
+}

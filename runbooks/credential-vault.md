@@ -2,7 +2,7 @@
 
 > **Owner:** <your-name> | **Last verified:** 2026-04-15
 
-A **credential vault** is whatever managed secret store your environment uses to hold API keys, tokens, and client secrets for MCP servers, CLI tools, and automations. This runbook describes the generic pattern — pick a backend from the "Supported backends" table and substitute its CLI / SDK where noted.
+A **credential vault** is whatever managed secret store your environment uses to hold API keys, tokens, and client secrets for external services/tools, CLI tools, and automations. This runbook describes the generic pattern — pick a backend from the "Supported backends" table and substitute its CLI / SDK where noted.
 
 ## Supported backends
 
@@ -22,14 +22,14 @@ Pick one, stick with it for a given environment, and document the choice in your
 - **Secret name:** stored in the vault itself — this IS the credential source
 - **Env var:** N/A at the vault layer; each fetched secret is exported to its own env var
 - **Fetch creds:** `AZURE_CONFIG_DIR=<your-config-dir> az login` (one-time) for Azure, or the equivalent bootstrap for your chosen backend
-- **MCP server:** N/A — access via the backend CLI / SDK directly
+- **Access:** via the backend CLI / SDK directly
 - **Vault config:** `~/.claude/.vault-config.json` (or equivalent) — records which vault name to use per environment
 
 ## The fetch-secrets helper
 
 **Location:** `~/.claude/scripts/fetch-secrets.sh` (suggested path)
 
-Fetches secrets for a given MCP server at startup. Outputs `export KEY=value` lines so the caller can `eval` them.
+Fetches secrets for a given external service/tool at startup. Outputs `export KEY=value` lines so the caller can `eval` them.
 
 ### Usage
 
@@ -117,7 +117,7 @@ op item create --category=password --title=SECRET-NAME --vault=<credential-vault
 | `CLICKUP_API_KEY` | `CLICKUP-API-KEY` |
 | `HELPJUICE_API_KEY` | `HELPJUICE-API-KEY` |
 
-The fetch script handles the `_` → `-` substitution. The `catalog.json` maps each MCP server to its required secrets (env var names).
+The fetch script handles the `_` → `-` substitution. The `catalog.json` maps each external service/tool to its required secrets (env var names).
 
 ## Runtime vault fetch from automation tools (n8n example)
 
@@ -127,8 +127,8 @@ Automation platforms that need per-execution secrets can call the backend API di
 # Azure example — obtain access token, then fetch the secret
 POST https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token
   grant_type=client_credentials
-  client_id={SP_CLIENT_ID}
-  client_secret={SP_CLIENT_SECRET}
+  client_id={<credential-env>}
+  client_secret={<credential-env>}
   scope=https://vault.azure.net/.default
 
 GET https://<credential-vault>.vault.azure.net/secrets/{SECRET-NAME}?api-version=7.4
@@ -140,8 +140,8 @@ Equivalents exist for each backend (AWS STS AssumeRole + Secrets Manager, Vault 
 ## Gotchas
 
 - **Backend login required** before any vault operations. Sessions expire — re-login when you get auth errors.
-- **No `.env` fallback.** All MCP server secrets come from the vault. If the vault is unreachable, the server won't start.
-- **Secret names != env var names.** The catalog maps vault secret names to env var names (e.g. vault `API-TOKEN` → env `API_TOKEN`). Underscores in env vars become hyphens in vault names; case is preserved.
+- **No `.env` fallback.** All external service/tool secrets come from the vault. If the vault is unreachable, the service won't start.
+- **Secret names != env var names.** The catalog maps vault secret names to env var names (e.g., vault `API-TOKEN` → env `API_TOKEN`). Underscores in env vars become hyphens in vault names; case is preserved.
 - **Isolate CLI configs for concurrent sessions.** For Azure, use `AZURE_CONFIG_DIR=<your-config-dir>`; AWS uses `AWS_PROFILE`; Vault uses `VAULT_ADDR` + `VAULT_TOKEN`. Don't let concurrent sessions stomp on each other's default config.
 
 ## Troubleshooting
@@ -149,7 +149,7 @@ Equivalents exist for each backend (AWS STS AssumeRole + Secrets Manager, Vault 
 | Symptom | Resolution |
 |---------|------------|
 | Vault CLI returns auth error | Session expired. Re-login with the backend-native command |
-| Fetch script outputs nothing | Verify login, verify `catalog.json` has the server entry |
+| Fetch script outputs nothing | Verify login, verify `catalog.json` has the service entry |
 | `WARNING — KEY not found in vault` | The secret doesn't exist, OR the catalog's env var name produces a hyphen-name that doesn't match the vault. List actual names and compare |
 | Concurrent sessions stomp each other's config | Always use an isolated config dir / profile — never bare login |
 | Bot / shared vault access denied | Grant the correct role (Azure: `Key Vault Secrets User`; AWS: `secretsmanager:GetSecretValue`; etc.) to the service principal / role |

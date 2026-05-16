@@ -46,7 +46,7 @@
 - Connection pooling, proper resource cleanup
 
 ## NetSapiens Quick Reference
-- API URL: `https://api.ucaasnetwork.com`
+- API URL: `https://<your-netsapiens-host>`
 - Auth: Token-based (`NETSAPIENS_API_TOKEN`)
 - Rate limiting: built into MCP client
 - Timeout: 30s default, HTTPS only
@@ -55,11 +55,47 @@
 - `/stella-dev [task]` → `.claude/commands/stella-dev.md`
 - `/stella-netsapiens [task]` → `.claude/commands/stella-netsapiens.md`
 - `/stella-mcp [project]` → `.claude/commands/stella-mcp.md`
+- `/wp [task]` → `.claude/commands/wp.md` (WordPress — loads wordpress-pro skill, targets prod)
+
+## Teams Bot
+
+- **Has Bot**: Yes
+- **Client ID Env**: `<credential-env>`
+- **Client Secret Env**: `<credential-env>`
+- **Tenant ID Env**: `<credential-env>`
+- **n8n Webhook**: `<internal-url>`
+- **Posting**: When asked to post to Teams, use Bot Framework Connector API with these credentials so the message appears as "Stella Fullstack" bot identity. Fall back to m365 MCP only if bot auth fails.
+
+## WordPress
+
+### Sites
+
+| Site | URL | Env Vars | Access |
+|------|-----|----------|--------|
+| Production | `https://<your-org>` | `WP_PROD_USER`, `WP_PROD_APP_PASSWORD` | Full CRUD — **all writes require explicit user approval** |
+| Development | TBD | `WP_DEV_USER`, `WP_DEV_APP_PASSWORD` | Full CRUD (when available) |
+
+### Workflow
+- **Production is the only active site** until the dev revamp is ready
+- All write operations (create/update/delete posts, pages, plugins, settings) require user approval before execution
+- Read operations (list posts, check plugins, inspect themes) are unrestricted
+- When dev site becomes available, default to dev for changes and promote to prod
+
+### Skill Integration
+- Invoke the `wordpress-pro` skill when working on PHP, themes, plugins, Gutenberg blocks, or WooCommerce
+- Auto-detect WP context: if the task involves `.php` files, `wp-content/`, `functions.php`, `wp-json/`, or WordPress terminology, load the skill
+
+### API Access
+- REST API base: `https://<your-org>/wp-json/wp/v2/`
+- Auth: Basic Auth with Application Passwords over HTTPS
+- Use `wordpress-prod` MCP server tools when available; fall back to direct API calls via curl/fetch
 
 ## MCP Integration
+
 - **<voip-mcp>**: NetSapiens platform (23 tools — users, CDR, domains, billing)
 - **salesforce-dx**: When building integrations that touch Salesforce
 - **<knowledge-base>**: When documenting integrations
+- **wordpress-prod**: WordPress production site (when configured)
 
 ## Sub-Modes
 

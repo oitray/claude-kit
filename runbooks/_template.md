@@ -15,12 +15,30 @@
 
 ## Common Operations
 
-[5-10 most frequent operations with exact commands/params]
+[5-10 most frequent operations with exact commands/params, grouped by mutation risk so future readers know what's safe to run without approval. Every command line gets a source label per `.claude/rules/runbook-citation.md`.]
 
-### Via API / CLI
+### Auth (one-time per machine)
 
 ```bash
-# example command
+# auth-init or token-export commands
+```
+
+### Read-only inventory (safe — no approval needed)
+
+```bash
+# list / get / show commands
+```
+
+### Connect (no resource state change)
+
+```bash
+# ssh / kubeconfig save / port-forward style commands that don't mutate cloud state
+```
+
+### Mutating operations (⚠ REQUIRE EXPLICIT RAY APPROVAL — do not run unattended)
+
+```bash
+# create / update / delete / assign / import — every entry source-labeled
 ```
 
 ### Via MCP

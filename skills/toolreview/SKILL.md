@@ -1,5 +1,5 @@
 ---
-description: Evaluate an external tool/service for addition to OCC or CCA — scrapes URL, assesses fit, and orchestrates installation if approved
+description: Evaluate an external tool/service for addition to OCC or CCA — assesses fit for both AI-assisted and non-AI <your-org> use cases, then orchestrates installation if approved
 ---
 
 # /toolreview — Tool Evaluation & Onboarding
@@ -40,7 +40,7 @@ If the URL is an article about a tool (not the tool itself), scrape it first, id
 
 Use the Agent tool to dispatch parallel research where tasks are independent:
 
-1. **Scrape the input URL** — extract capabilities, pricing, auth model, license
+1. **Scrape the input URL** — extract capabilities, pricing, auth model, license. Identify both AI-integration features (APIs, SDKs, MCP servers, webhooks for agent pipelines) AND non-AI features (CLI tools, dashboards, browser UIs, team collaboration, direct productivity gains).
 2. **npm search** — run `npm search {name} mcp` and `npm view {name}-mcp version` to find MCP packages
 3. **GitHub search** — search for `{name} mcp server` repos via `mcp__github__search_repositories` or `gh search repos`
 4. **MCP directories** — web search for `site:mcp.so {name}`, `site:smithery.ai {name}`, `site:glama.ai {name}`
@@ -57,40 +57,60 @@ Rate each criterion on a 1-5 scale using filled/empty blocks:
 
 | Criteria | Weight | What to assess |
 |----------|--------|----------------|
-| <your-org> Relevance | High | Does it serve VoIP, MSP, Salesforce, support, or sales workflows? Score 1 if generic with no clear <your-org> use case, 5 if directly serves a core <your-org> function. |
+| AI Use Value | High | How useful is this tool when integrated into AI-assisted workflows (Claude Code skills, MCP servers, agent pipelines, n8n AI nodes, <internal-bot>/<internal-bot>)? Score 1 if no meaningful AI integration path, 5 if it unlocks capabilities AI agents can't achieve without it. |
+| Non-AI Use Value | High | How useful is this tool for direct human use outside AI workflows (CLI scripts, browser dashboards, manual API calls, team productivity)? Score 1 if only useful through AI, 5 if it's a standalone productivity win for <your-org> staff. |
+| <your-org> Domain Fit | High | Does it serve VoIP, MSP, Salesforce, support, or sales workflows? Score 1 if generic with no clear <your-org> use case, 5 if directly serves a core <your-org> function. A tool can score high here even if only one of AI/Non-AI value is high. |
 | Integration Options | High | Rank available paths by reliability: API > CLI > MCP. Score 1 if only an unreliable community MCP exists, 5 if vendor-maintained API + CLI + official MCP. |
 | Cost | Medium | Score 5 if free/open-source, 4 if freemium with adequate free tier, 3 if paid but < $20/mo, 2 if $20-100/mo, 1 if > $100/mo or enterprise-only. |
 | Overlap | Medium | Score 5 if no overlap with existing stack, 3 if partial overlap but adds unique capabilities, 1 if fully duplicates an installed tool. |
 | Security & License | Medium | Score 5 for MIT/Apache with clean npm audit from a known publisher. Deduct for: AGPL (3), no license (2), audit warnings (2), unknown publisher (1). **Known developer modifier:** If the user confirms personal knowledge of the developer + explicit permission to use, restore up to 2 points deducted for unknown publisher / no license. Note this in the scorecard. |
 | Maintenance | Low | Score 5 if commits within 30 days, 4 within 90 days, 3 within 6 months, 2 within 1 year, 1 if older. |
 
+**Use-case classification:** Based on AI Use Value and Non-AI Use Value scores, classify the tool:
+- **AI-primary:** AI Use >= 4, Non-AI Use <= 2 — value is almost entirely in AI agent workflows
+- **Non-AI-primary:** Non-AI Use >= 4, AI Use <= 2 — value is in direct human use; AI integration is bonus
+- **Dual-use:** Both AI Use >= 3 AND Non-AI Use >= 3 — meaningful value in both lanes
+- **AI-enhanced:** Non-AI Use >= 3, AI Use 2-3 — useful standalone, AI integration adds moderate value
+
+This classification drives the outcome type and recommendation card but does NOT gate approval — a tool that scores 5 on AI Use and 1 on Non-AI Use is still valid if the AI use case is compelling.
+
 **Determine the outcome type:**
-- **MCP Catalog Entry:** A maintained MCP server exists (score >= 3 on Integration Options with an MCP path) AND <your-org> Relevance >= 3
-- **Runbook Only:** Best integration path is CLI or API (no good MCP, or MCP is unreliable) AND <your-org> Relevance >= 3
-- **Follow-Up Build Issue:** <your-org> Relevance >= 4 but no adequate integration exists yet (worth building later)
+- **MCP Catalog Entry:** A maintained MCP server exists (score >= 3 on Integration Options with an MCP path) AND <your-org> Domain Fit >= 3 AND AI Use Value >= 3
+- **Runbook Only:** Best integration path is CLI or API (no good MCP, or MCP is unreliable) AND <your-org> Domain Fit >= 3 AND (AI Use Value >= 3 OR Non-AI Use Value >= 3)
+- **Follow-Up Build Issue:** <your-org> Domain Fit >= 4 AND AI Use Value >= 3 but no adequate integration exists yet (worth building later)
 - **Methodology Import:** The tool's technique or pattern is worth adopting into existing <your-org> skills/workflows, but the package itself isn't worth installing (high overlap, wrong tracker integration, no license, etc.). Create a ClickUp task scoped to importing the specific methodology.
-- **Skip:** <your-org> Relevance < 3, OR Overlap == 1, OR Cost is unjustified relative to use cases
+- **Non-AI Tool Only:** Non-AI Use Value >= 4 AND AI Use Value <= 2 AND <your-org> Domain Fit >= 3 — worth adopting for human use but no MCP/agent integration needed. Create a runbook focused on CLI/dashboard/manual workflows.
+- **Skip:** <your-org> Domain Fit < 3, OR Overlap == 1, OR Cost is unjustified relative to use cases, OR both AI Use Value < 3 AND Non-AI Use Value < 3
 
 ### Step 1.4: Present Recommendation
 
-Display this card to the user:
+Display this card to the user AND write it to `working/{tool-key}-review.md` (kebab-case tool name):
 
 ~~~
 ## Tool Review: {Name}
 
 **Verdict:** {✅ Add / ⚠️ Maybe / ❌ Skip}
-**Outcome:** {MCP Catalog Entry / Runbook Only / Follow-Up Build Issue / Skip}
+**Outcome:** {MCP Catalog Entry / Runbook Only / Follow-Up Build Issue / Non-AI Tool Only / Skip}
+**Use-case class:** {AI-primary / Non-AI-primary / Dual-use / AI-enhanced}
 **Target:** {OCC / CCA / Both} *(advisory — not a catalog field)*
 **Why:** {1-2 sentence justification}
 
 | Criteria | Score | Notes |
 |----------|-------|-------|
-| <your-org> Relevance | {⬛⬛⬛⬛⬜} | {note} |
+| AI Use Value | {⬛⬛⬛⬛⬜} | {note} |
+| Non-AI Use Value | {⬛⬛⬛⬜⬜} | {note} |
+| <your-org> Domain Fit | {⬛⬛⬛⬛⬜} | {note} |
 | Integration Options | {⬛⬛⬛⬛⬛} | {note} |
 | Cost | {⬛⬛⬛⬜⬜} | {note} |
 | Overlap | {⬛⬛⬛⬛⬛} | {note} |
 | Security & License | {⬛⬛⬛⬛⬜} | {note} |
 | Maintenance | {⬛⬛⬛⬜⬜} | {note} |
+
+### AI Use Cases for <your-org>
+{Bulleted list of specific ways this tool adds value inside AI agent workflows — Claude Code skills, MCP integrations, n8n AI nodes, <internal-bot>/<internal-bot> pipelines. Write "None identified" if AI Use Value <= 1.}
+
+### Non-AI Use Cases for <your-org>
+{Bulleted list of specific ways this tool adds value for direct human use — CLI productivity, browser dashboards, manual API calls, team workflows. Write "None identified" if Non-AI Use Value <= 1.}
 
 **Integration options (ranked by reliability):**
 1. {path}: {details} ⭐ recommended
@@ -98,11 +118,12 @@ Display this card to the user:
 3. {path}: {details}
 
 **Cost:** {free/pricing details}
-**Use cases for <your-org>:** {bulleted list}
 **Overlaps with:** {existing catalog entries, installed tools, or "none"}
 
 Proceed? (yes / no / need more info)
 ~~~
+
+The `working/{tool-key}-review.md` file is the durable artifact of this evaluation. Write the full card content as markdown (not fenced). This file persists regardless of the verdict — it documents both approvals and skips.
 
 ### GATE 1
 
@@ -120,7 +141,7 @@ On Gate 1 approval, create a task using `mcp__clickup__clickup_create_task`:
 - **name:** `Tool Review: {Name}`
 - **tags:** `["tool-review"]`
 - **priority:** `normal`
-- **markdown_description:** Include the full evaluation scorecard from Phase 1, the outcome type, and a checklist of implementation steps (populated based on outcome type).
+- **markdown_description:** Include the full evaluation scorecard from Phase 1 (including use-case classification and both AI/Non-AI use case lists), the outcome type, and a checklist of implementation steps (populated based on outcome type).
 
 For **Skip** outcomes: create the task, add the skip reasoning to the description, then close it immediately with `mcp__clickup__clickup_update_task` setting `status: "completed"`. Stop here — no Phase 3.
 
@@ -159,6 +180,15 @@ Present this plan:
 1. **Create runbook** — `docs/runbooks/{key}.md` in the automations repo using `docs/runbooks/_template.md`. Cover: auth method, CLI/API commands, <your-org>-specific IDs, gotchas.
 2. **Commit** — commit to automations repo on current branch
 3. **Verify** — run a test CLI command or API call using the runbook instructions to confirm they work
+
+#### If outcome = Non-AI Tool Only
+
+Present this plan:
+
+1. **Create runbook** — `docs/runbooks/{key}.md` in the automations repo using `docs/runbooks/_template.md`. Focus on CLI commands, dashboard URLs, manual API patterns, and team workflows. Omit MCP/agent integration sections.
+2. **Store secret (if needed)** — run `! store-secret --vault {vault} --name {SECRET-NAME}` if the tool requires API credentials for CLI/script use.
+3. **Commit** — commit to automations repo on current branch
+4. **Verify** — run a test CLI command or API call using the runbook instructions to confirm they work
 
 #### If outcome = Follow-Up Build Issue
 
@@ -224,6 +254,7 @@ On failure at any step:
 When all steps succeed:
 
 1. Update the ClickUp task description with a summary of all artifacts created:
+   - Review file: `working/{tool-key}-review.md`
    - PR link (if applicable)
    - Runbook path
    - Tool doc path (if applicable)

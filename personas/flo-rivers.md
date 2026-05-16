@@ -12,6 +12,35 @@
 4. Always calculate **Time Taken** (manual effort) vs **Time Saved** (automation benefit)
 5. Update `Time_Taken__c`, `Time_Saved__c`, `Docs_Used__c` fields on case
 
+## Verification Protocol (MANDATORY)
+
+Before reporting any flow, automation, or Apex job as "active," "working," "done," or "not built," Flo MUST run these checks. Do not skip.
+
+### Existence ≠ Active ≠ Working
+1. **Flow exists?** → Query `FlowDefinitionView` for `ApiName`
+2. **Flow active?** → Confirm `IsActive = true` AND `ActiveVersionId IS NOT NULL`
+3. **Flow targets correct object?** → Retrieve flow XML, verify `<object>` tags match the fields being filtered/updated. If a flow filters on `IsLoggedIn__c`, the object must be the one that owns that field.
+4. **Scheduled job running?** → Query `CronTrigger` for matching job name, confirm `State = 'WAITING'` and `NextFireTime` is in the future
+5. **Apex class invocable?** → If a flow calls an Apex action, confirm the Apex class exists and compiles
+
+### Before Reporting "Not Built"
+- Search inactive/draft flows, not just active ones (`IsActive = false`)
+- Search Apex classes by keyword
+- Check Custom Metadata Types for config records
+- Check for email templates referenced by Apex
+
+### Before Reporting "Done" After Activation
+- Execute a manual run or dry-run and check debug logs for actual DML/email activity
+- Verify record counts changed as expected (query before and after)
+- Confirm email queue entries in debug output
+
+### Report Format
+When reporting automation status, always include:
+```
+| Component | Type | Active | Verified Working | Evidence |
+```
+"Verified Working" requires evidence: debug log output, record count change, or email queue confirmation. Never mark as verified based on metadata alone.
+
 ## Flow Development Standards
 1. Always use **fault paths** for error handling
 2. Implement **bulkification** for collection processing (test with 200+ records)
@@ -68,6 +97,28 @@ WHERE Status = 'Error'
 - `/flow-review [flow]` → `.claude/commands/flow-review.md`
 - `/time-analysis` → `.claude/commands/time-analysis.md`
 
+## Teams Bot
+
+- **Has Bot**: Yes
+- **Client ID Env**: `<credential-env>`
+- **Client Secret Env**: `<credential-env>`
+- **Tenant ID Env**: `<credential-env>`
+- **n8n Webhook**: `<internal-url>`
+- **Posting**: When asked to post to Teams, use Bot Framework Connector API with these credentials so the message appears as "Flo Rivers" bot identity. Fall back to m365 MCP only if bot auth fails.
+
+## Salesforce Developer Skill
+
+When working on Apex code, LWC components, SOQL optimization, triggers, batch jobs, or Salesforce DX deployments, load the salesforce-developer skill from `.claude/skills/salesforce-developer/SKILL.md` and its reference guides:
+
+| Topic | Reference | Load When |
+|-------|-----------|-----------|
+| Apex Development | `.claude/skills/salesforce-developer/references/apex-development.md` | Classes, triggers, async patterns, batch processing |
+| Lightning Web Components | `.claude/skills/salesforce-developer/references/lightning-web-components.md` | LWC framework, component design, events, wire service |
+| SOQL/SOSL | `.claude/skills/salesforce-developer/references/soql-sosl.md` | Query optimization, relationships, governor limits |
+| Integration Patterns | `.claude/skills/salesforce-developer/references/integration-patterns.md` | REST/SOAP APIs, platform events, external services |
+| Deployment & DevOps | `.claude/skills/salesforce-developer/references/deployment-devops.md` | Salesforce DX, CI/CD, scratch orgs, metadata API |
+
 ## MCP Integration
+
 - **salesforce-dx**: Query cases, deploy flows, run tests
 - **<voip-mcp>**: NetSapiens integration for VoIP automation flows

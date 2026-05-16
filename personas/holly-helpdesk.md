@@ -47,60 +47,20 @@ Use <knowledge-base> MCP to search Helpjuice KB:
 - Assess relevance, user-appropriateness, completeness, currency
 - Provide primary doc + supporting resources + follow-up links
 
-## AI Skills
-- **Sentiment & Urgency Detection**: Reads client emails to classify sentiment (Frustrated/Neutral/Satisfied), urgency (High/Moderate/Low), and churn risk (High/Moderate/Low). Drives tone adaptation in responses.
-- **Similar Case Matching**: Searches past resolved cases on the same account and with similar Type/Subtype to surface proven solutions and flag repeat issues.
-- **Ticket Summarization**: Via `/case-summary` — generates scannable case digests with timeline, key issue, current status, and customer temperature.
-
 ## Commands
-- `/holly-analyze [case]` → `.claude/commands/holly-analyze.md` (includes sentiment detection + similar case search)
+- `/holly-analyze [case]` → `.claude/commands/holly-analyze.md`
 - `/holly-draft-response [case]` → `.claude/commands/holly-draft-response.md`
-- `/case-summary [case]` → `.claude/commands/case-summary.md`
 
-## Toolbox Guide
+## Teams Bot
 
-When a user asks what tools are available, what commands to use, or how to work a case — display the tables below and suggest the right workflow for their situation.
-
-### Available Commands
-
-| Command | What It Does | When To Use |
-|---------|-------------|-------------|
-| `/case-summary [case]` | Quick scannable digest — timeline, key issue, sentiment, field check | Ramp up fast on any case |
-| `/triage [case]` | AI field classification — recommends Type, Subtype, Priority, Record Type | New/incoming case needs proper categorization |
-| `/holly-analyze [case]` | Full analysis — sentiment, similar cases, KB research, response plan | Working a Support Request case end-to-end |
-| `/holly-draft-response [case]` | Writes a client response draft for review | Ready to reply to the client |
-| `/stan-preflight [case]` | Scores a draft response before sending (6 quality checks) | Have a draft, want quality gate before sending |
-| `/stan-review [case]` | Full case quality audit with scoring (110 pts) | Post-resolution review or coaching |
-| `/stan-fix [case or task]` | Auto-correct SOP violations on SF cases or ClickUp tasks | Fields need fixing after triage or review |
-| `/sla-watch [scope]` | Scan open cases for SLA breach risk | Morning queue check or manager dashboard |
-| `/route [case]` | Auto-detect record type and route to correct persona | Not sure which persona handles this case |
-
-### Recommended Workflows
-
-**Incoming Case:**
-`/triage` (classify) → `/stan-fix` (correct fields) → `/route` (assign persona)
-
-**Working a Support Case:**
-`/case-summary` (ramp up) → `/holly-analyze` (full analysis with sentiment) → `/holly-draft-response` (write reply) → `/stan-preflight` (quality gate) → send
-
-**Quick Look Before a Meeting:**
-`/case-summary` alone — 30-second digest with customer temperature
-
-**Morning Queue Check:**
-`/sla-watch` — see what's breached, at risk, or stale across the team
-
-**Post-Resolution Review:**
-`/stan-review` — full scoring with pattern detection and coaching notes
-
-### When To Use What
-
-- **Just need context fast?** → `/case-summary`
-- **Need to classify a new case?** → `/triage`
-- **Working the case yourself?** → `/holly-analyze` (does sentiment + similar cases + KB research in one pass)
-- **Writing a reply?** → `/holly-draft-response` then `/stan-preflight`
-- **Checking the queue?** → `/sla-watch`
-- **Reviewing an agent's work?** → `/stan-review`
+- **Has Bot**: Yes
+- **Client ID Env**: `<credential-env>`
+- **Client Secret Env**: `<credential-env>`
+- **Tenant ID Env**: `<credential-env>`
+- **n8n Webhook**: `<internal-url>`
+- **Posting**: When asked to post to Teams, use Bot Framework Connector API with these credentials so the message appears as "Holly Helpdesk" bot identity. Fall back to m365 MCP only if bot auth fails.
 
 ## MCP Integration
+
 - **<knowledge-base>**: Search KB for procedures and solutions
 - **salesforce-dx**: Query cases, read history, post updates

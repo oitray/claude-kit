@@ -1,0 +1,18 @@
+# Cloudflare Workers config for Teams bot receiver.
+# Replace placeholders before `wrangler deploy`:
+#   - <YOUR_WORKER_NAME>     a unique worker name (e.g. teams-dm-bot-<initials>)
+#   - <YOUR_KV_NAMESPACE_ID> from `wrangler kv:namespace create CONV_REF`
+
+name = "<YOUR_WORKER_NAME>"
+main = "index.js"
+compatibility_date = "2026-05-01"
+
+[[kv_namespaces]]
+binding = "CONV_REF"
+id = "<YOUR_KV_NAMESPACE_ID>"
+
+# Secrets are set via `wrangler secret put`:
+#   wrangler secret put BOT_APP_ID
+#   wrangler secret put BOT_APP_SECRET
+#   wrangler secret put <credential-env>
+#   wrangler secret put SETUP_SECRET

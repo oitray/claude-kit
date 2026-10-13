@@ -178,4 +178,4 @@ Mentioned for completeness only. Enterprise-only feature that provides programma
 
 | Date | Issue | Root Cause | Fix |
 |------|-------|-----------|-----|
-| 2026-04-13 | All Meeting Inbox tasks showed in digest regardless of assignee | Fireflies ClickUp integration creates all tasks under <your-name>'s account | Added `for_ray` field to AI classifier; restructured workflow to use team-wide ClickUp API with assignee/watcher filtering |
+| 2026-04-13 | All Meeting Inbox tasks showed in digest regardless of assignee | Fireflies ClickUp integration creates all tasks under <your-name>'s account | Added `for_owner` field to AI classifier; restructured workflow to use team-wide ClickUp API with assignee/watcher filtering |

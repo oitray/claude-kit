@@ -35,7 +35,7 @@
 # ssh / kubeconfig save / port-forward style commands that don't mutate cloud state
 ```
 
-### Mutating operations (⚠ REQUIRE EXPLICIT RAY APPROVAL — do not run unattended)
+### Mutating operations (⚠ REQUIRE EXPLICIT OWNER APPROVAL — do not run unattended)
 
 ```bash
 # create / update / delete / assign / import — every entry source-labeled

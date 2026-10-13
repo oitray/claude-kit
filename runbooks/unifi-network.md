@@ -150,7 +150,7 @@ The UniFi gateway is hardwired to the AT&T router. When on VOIP2 (AT&T LAN), the
 - **v1 integration API is narrow.** Sites/devices/clients only. Events and alarms (and per-site health) require the legacy `/proxy/network/api/s/{site}/` path, accessed with the same key.
 - **Events endpoint 404s on 10.2.x.** Neither v1 nor legacy `/stat/event` is exposed to the integration key on this firmware. Use the UniFi UI for full event history; use `alarms.sh` for actionable issues.
 - **Write allowlist is strict.** `apply.sh` rejects any action not in `ALLOWED=(wlan.toggle client.block client.unblock client.set-fixed-ip device.restart device.radio speedtest.run)`.
-- **API key rotation.** Rotating the admin's local key revokes in-flight sessions. After rotation: `store-secret --vault ray --name UNIFI-LOCAL-API-KEY`.
+- **API key rotation.** Rotating the admin's local key revokes in-flight sessions. After rotation: `store-secret --vault <your-vault> --name UNIFI-LOCAL-API-KEY`.
 - **Speedtest cadence.** Don't run `speedtest.run` more than once per ~5 min — it saturates the WAN.
 - **Rate limits.** The local API has no documented limit, but 5xx bursts trigger backoff. Scripts cap at 3 retries.
 

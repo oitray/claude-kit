@@ -2157,7 +2157,7 @@ sf data query --use-tooling-api -o <alias> -q "SELECT Id, DeveloperName, Type, S
 
 Goal: know exactly which fields the flow consumes so synthetic records don't fault on missing data before reaching the patched element.
 
-**2. Synthetic in qa.** Create records with `ZZZ_<task-id>_Smoke_DELETE_<ts>` naming. Drive the smoke via Playwright (frontdoor URL → headless Chromium → quick-action click — see `.claude/rules/browser-automation.md`). Iterate the data shape until the flow walks past the patched element. Use `ray+<purpose>@<your-org>` (sub-addressing) for recipient fields so emails route to <your-name>'s inbox.
+**2. Synthetic in qa.** Create records with `ZZZ_<task-id>_Smoke_DELETE_<ts>` naming. Drive the smoke via Playwright (frontdoor URL → headless Chromium → quick-action click — see `.claude/rules/browser-automation.md`). Iterate the data shape until the flow walks past the patched element. Use `you+<purpose>@<your-org>` (sub-addressing) for recipient fields so emails route to <your-name>'s inbox.
 
 **3. Synthetic in prod.** Once qa smoke proves the fix, replicate the synthetic shape in prod and re-drive. Be aware that prod may exercise downstream paths (record-changed flows, subflows, Order/Activation) that qa doesn't, so expect to iterate the data shape one more time.
 

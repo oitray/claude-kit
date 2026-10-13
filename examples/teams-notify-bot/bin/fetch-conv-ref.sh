@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-shot bootstrap helper.
 # Fetches the cached conversation reference from the Worker (or Function)
-# using the setup secret and writes it to ~/.config/teams-dm/conv-ref.json.
+# using the setup secret and writes it to ~/.config/teams-notify/conv-ref.json.
 #
 # Usage:
 #   WORKER_URL=https://my-bot.example.workers.dev \
@@ -12,7 +12,7 @@ set -euo pipefail
 : "${WORKER_URL:?WORKER_URL must be set to your Worker or Function URL}"
 : "${SETUP_SECRET:?SETUP_SECRET must be set to the value you wrangled into the worker}"
 
-CONFIG_DIR="${HOME}/.config/teams-dm"
+CONFIG_DIR="${HOME}/.config/teams-notify"
 mkdir -p "${CONFIG_DIR}"
 
 response_file="$(mktemp)"

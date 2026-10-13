@@ -20,6 +20,8 @@ iTerm2 dynamic profile
 
 Four name backends stay in lockstep: tmux session, tmux window, iTerm tab title, Claude TUI banner.
 
+> **Plan Execution Workflow moved (2026-07-06, <clickup-task-id>):** the plan-execution workflow (ClickUp card → plan file → execute-pass → codex review ladder → gates → completion) no longer lives inline in `~/.claude/CLAUDE.md`. It is now the on-demand `plan-execution` skill (`~/.claude/skills/plan-execution/SKILL.md`), with a short pointer left where the section was. Future edits to the workflow target the skill file, not `CLAUDE.md`.
+
 ## iTerm2 Dynamic Profiles
 
 Located at `~/Library/Application Support/iTerm2/DynamicProfiles/<harness-profiles>.json`. Each profile prompts for a session name, then drops into a named tmux session via `occ` or `cca`.
@@ -60,7 +62,7 @@ Wired in `~/.claude/settings.json` under `SessionStart`, `Stop`, `UserPromptSubm
 | Hook | Event | Purpose |
 |------|-------|---------|
 | `cctc-session-start.sh` | SessionStart | Verifies `occ`/`cca` shell functions exist in `~/.zshrc` |
-| `main-drift-rescue.sh` | SessionStart | Rescues dirty state in the `automations` main checkout (flock-guarded) |
+| `main-drift-rescue.sh` | SessionStart | Rescues dirty state in the `automations` main checkout (flock-guarded). Also self-heals a **diverged-but-clean** main: if local has commit(s) origin lacks + is behind origin, it `reset --hard`s to origin/main only when the local tree is byte-identical to origin (redundant commits — lossless), else warns; and rolls back the plan-rescue commit if its push is rejected, so main never diverges. `OCC_DRIFT_MAIN_REPO=<path>` overrides the target for tests (`bin/tests/test_main_drift_rescue.sh`) |
 | `cleanup-gone.sh` | SessionStart, Stop | `git fetch --prune` + `git worktree prune` |
 | `in-flight-summary.sh` | SessionStart | Posts in-flight ClickUp + branch summary |
 | `guard-main-checkout.sh` | PreToolUse (Write/Edit/Bash) | Blocks writes inside the main checkout outside `docs/superpowers/plans/` and `.worktrees/` (escape: `OCC_ALLOW_MAIN_EDIT=1`) |
@@ -110,7 +112,7 @@ The `/start-task <ID>` slash command (defined in `~/.claude/commands/start-task.
 | Issue | Symptom | Fix |
 |-------|---------|-----|
 | Claude TUI prompt uses NBSP (U+00A0) | `^❯ ` regex in `prompt_is_idle()` silently fails | Match the glyph without asserting the trailing whitespace; strip NBSP via `${rest//$'\xc2\xa0'/}` |
-| Disowned subshells outlive script edits | Stale `send-keys` fire after `rename-session.sh` is updated | `pkill -f rename-session.sh` between iterations during development |
+| Disowned subshells outlive script edits | Stale `send-keys` fire after `rename-session.sh` is updated | Between iterations, `pgrep -fl rename-session.sh`, confirm each argv is your own stale subshell, then `kill <pid>` (never `pkill -f` — blocked by `broad-kill-guard.sh`) |
 | Bash 3.2 PID gotcha (macOS default) | `$$` inside `( ... ) &` returns parent PID, not subshell PID; `BASHPID` unset | Capture `$!` in the parent and have the parent write the pidfile |
 | Squash-merge gotcha | Branch picks up phantom conflicts on files it never touched after a co-worker's PR squash-merges | Cherry-pick own commits onto a fresh branch from `origin/main`; supersede the old PR |
 | Bash tool runs in zsh | `BASH_REMATCH` is empty in zsh; bash regex one-liners silently fail | Wrap in `/bin/bash -c '...'` |
@@ -121,6 +123,6 @@ The `/start-task <ID>` slash command (defined in `~/.claude/commands/start-task.
 - `remote-sessions.md` — `occ`/`cca` shell functions, remote dispatch
 - `salesforce-cli.md` — deploy commands invoked from worktrees
 - `helpjuice-api.md` — <knowledge-base> publishing (mirror of this article lives there)
-- `~/.claude/CLAUDE.md` — global communication style, evidence-based language, plan execution workflow
+- `~/.claude/CLAUDE.md` — global communication style, evidence-based language (plan-execution workflow now in the `plan-execution` skill)
 - `Projects/CLAUDE.md` — cross-project standards
 - `automations/CLAUDE.md` — automations-specific (production safety, PR workflow, subagent rules)

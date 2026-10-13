@@ -1,14 +1,18 @@
 # Helpjuice API Runbook
 
-> **Owner:** <your-name> | **Last verified:** 2026-05-12
+> **Owner:** <your-name> | **Last verified:** 2026-10-11
 
 ## API quirks (empirical 2026-05-06)
 
-- **No analytics API exists.** All `/api/v3/analytics*` paths (including `/analytics`, `/analytics/searches`, `/analytics/articles`) and `/api/v3/searches`, `/api/v3/search_terms` return HTTP 404 on both `oit.helpjuice.com` and `<knowledge-base>.helpjuice.com`. Helpjuice analytics is admin-UI only. The `<knowledge-base>-mcp` server's `<kb>_helpjuice_get_analytics` tool (`/Users/<your-username>/Projects/<knowledge-base>-mcp/src/index.ts:1167`) targets `/analytics` and is dead code — calls return 404. **For popularity ranking, use the per-article `views` field instead** (see next bullet).
-- **`accessibility` and `views` are null in the bulk list, populated in per-article fetch.** `GET /api/v3/articles?per_page=100` returns `"accessibility": null` and `"views": null` for every article. `GET /api/v3/articles/{id}` returns the correct values. **empirical (2026-05-06):** verified against article 3759871 (returns `accessibility: 0`) and the broader 2,135-article catalog (all null in bulk). Any audience-filter or popularity-ranking pipeline that batches over the bulk list MUST either re-fetch each article individually or fall back to category-name filtering. The 2026-05-06 VoIP MSP research deliverable's voipdoc match column shipped with internal-only links because the prior pipeline trusted the bulk-list `accessibility` field — fix in PR #420.
+- **No analytics API exists.** All `/api/v3/analytics*` paths (including `/analytics`, `/analytics/searches`, `/analytics/articles`) and `/api/v3/searches`, `/api/v3/search_terms` return HTTP 404 on both `<your-org>.helpjuice.com` and `<knowledge-base>.helpjuice.com`. Helpjuice analytics is admin-UI only. The `<knowledge-base>-mcp` server's `<kb>_helpjuice_get_analytics` tool (`/Users/<your-username>/Projects/<knowledge-base>-mcp/src/index.ts:1167`) targets `/analytics` and is dead code — calls return 404. **For popularity ranking, use the per-article `views` field instead** (see next bullet).
+- **`per_page` is no longer honored on the bulk list — use `limit`.** **empirical (2026-06-12, <clickup-task-id>):** `GET /api/v3/articles?per_page=100` returns 25 items (`meta.limit: 25`); the working param is `limit` (`limit=100` → 100 items, `meta.total_pages: 24`, `total_count: 2335`). Paginate via `meta.total_pages`. Any code still sending `per_page=100` and stopping when a page has <100 items silently truncates the catalog to 25 articles. **contradicts-docs** vs older `per_page=100` snippets in this runbook — live behavior wins.
+- **The bulk list no longer exposes `slug` at any location.** **empirical (2026-06-12, <clickup-task-id>):** `item.slug`, `item.answer.slug`, and `item.answer.permalink` are all `null` on every bulk-list item. Derive the slug from the trailing path segment of `url` (e.g. `<internal-url> → `salesforce-lead-playbook`). The plan-audit gate-4 catalog fetcher (`scripts/plan-audit/lib/helpjuice_slugs.py`) does exactly this and fails closed (`HelpjuiceUnreachable`) if a non-empty list yields 0 slugs, so a future shape drift can't poison the slug cache with an empty catalog.
+- **Rate limit: 300 requests / 60 s per API key.** **empirical (2026-10-08, <clickup-task-id>):** every response carries `x-ratelimit: {"name":"API","period":60,"limit":300,"remaining":N,"until":"<iso>"}`; once `remaining` hits 0 the API returns **HTTP 429** until `until`. The budget is shared by every consumer of the key (<internal-bot>-gateway, n8n, scripts) — page walks should use bounded concurrency and honor `until` on a 429.
+- **The bulk list populates `accessibility`; `views` can still be null.** **empirical (2026-10-08, <clickup-task-id>):** `GET /articles?limit=100&page=1..26` returned a numeric `accessibility` on every article (2,576: 0 → 1,803 · 1 → 682 · 2 → 88 · 4 → 3) and it matched `GET /articles/<id>` on 247/247 sampled articles. Bulk rows also carry `published` (419 unpublished) and `category {id,name}`. `views` is null on some bulk rows, so popularity ranking still needs the per-article fetch. (Until 2026-10-08 this runbook said bulk `accessibility` was always null — empirical 2026-05-06 — which no longer holds.)
+- **The unfiltered bulk list sorts published articles first, drafts last.** **empirical (2026-10-11, <clickup-task-id>):** `GET /articles?limit=1000&page=1..3` returned 0, 0 and 425 unpublished rows; at `limit=100` pages 26–23 were all drafts and page 22 was published rows then drafts. There is no draft filter (`published=false`, `status=draft`, `filter[...]`, `sort=` are ignored) and `limit=1000` is honored (`category_id=1369076&limit=1000` → 222 rows, one page; an unfiltered 1000-row page is about 16.6 MB). `GET /search` never returns drafts. Thread-Learning reads the draft tail backwards (`docs/runbooks/thread-learning.md` "Draft catalog").
 - **Views field IS the popularity proxy.** Per-article `views` is a monotonic counter. **empirical (2026-05-06)** top-viewed in <knowledge-base>: "Disabling SIP ALG on a Fortigate Firewall" at 42,498 views. There is no `?sort=views` shortcut — fetch each article and sort client-side.
 - **Audience filtering pattern — three layers in order.** When matching arbitrary questions back to articles for public-facing surfaces, use these three filters in order:
-  1. **Strict `accessibility == 1`** (per-article fetch required) — only `1` is publicly reachable on `<knowledge-base>.io`. `0`, `2`, `4` are internal/private/URL-only and must be excluded from public-facing recommendations.
+  1. **Strict `accessibility == 1`** (the bulk list carries it since 2026-10-08; re-fetch the article only when the decision must be current to the minute) — only `1` is publicly reachable on `<knowledge-base>.io`. `0`, `2`, `4` are internal/private/URL-only and must be excluded from public-facing recommendations.
   2. **Host allowlist** — accept only `<knowledge-base>.io` and `<knowledge-base>.helpjuice.com` URLs as voipdoc matches. Reject any cross-categorized hits whose `source_url` is a vendor docs site (e.g. `documentation.netsapiens.com`); those leak through `knowledge_chunks` because some articles cross-link to vendor sources.
   3. **Category deny list** (cheap, available in bulk list `category.name`) — backstop for articles whose accessibility is mistakenly set: drop `HR`, `Job Postings & Descriptions`, `Company Policies`, `Finance`, `Sales`, `Compliance`, `Compliance & Security`, `Marketing`, `Branding`, `White Label Branding`, `Guidelines of Employment`, `Training Syllabi`, `Announcements`.
 
@@ -17,11 +21,35 @@
 ## Auth
 
 - **Method:** API key (raw, no Bearer prefix — `Authorization: $HELPJUICE_API_KEY`)
-- **Vault:** `<credential-vault>`
-- **Secret name:** `HELPJUICE-API-KEY` (plus `HELPJUICE-SUBDOMAIN` for the subdomain)
-- **Env var:** `$HELPJUICE_API_KEY`, `$HELPJUICE_SUBDOMAIN`
-- **Fetch creds:** `eval "$($HOME/.claude/scripts/fetch-secrets.sh <knowledge-base>)"`
+- **Vault:** `<credential-vault>`, read via the **<internal-bot> SP cert** (preferred — `.claude/rules/auth.md` §1). `HELPJUICE-API-KEY` was copied into `<credential-vault>` on 2026-09-28; the team lead reported that a cert-authenticated read returned HTTP 200 from the API. The original copy is still in `<credential-vault>` (OCC Orchestrator SP via `<azure-config-dir>`, auth.md §2), which existing daemons such as `local-poller-wrap.sh` read.
+- **Rotation:** `HELPJUICE-API-KEY` exists in BOTH vaults — `<credential-vault>` (Claude sessions, <internal-bot> cert) and `<credential-vault>` (daemons, OCC Orchestrator SP). A rotation must update both, or one side keeps a dead key.
+- **Secret name:** `HELPJUICE-API-KEY`. Subdomain is `<knowledge-base>` (base `<internal-url>).
+- **Fetch creds:**
+
+```bash
+CDIR=$(mktemp -d)
+AZURE_CONFIG_DIR=$CDIR az login --service-principal -u <azure-uuid> \
+  --certificate ~/.claude/orchestrator/certs/<internal-bot>-sp-combined.pem \
+  --tenant <azure-uuid> --allow-no-subscriptions >/dev/null
+HELPJUICE_API_KEY=$(AZURE_CONFIG_DIR=$CDIR az keyvault secret show --vault-name <credential-vault> \
+  --name HELPJUICE-API-KEY --query value -o tsv)
+AZURE_CONFIG_DIR=$CDIR az logout; rm -rf "$CDIR"
+```
+
+- **Transport — use `curl`, not Python `urllib`.** Python 3.13's SSL trust store raises `CERTIFICATE_VERIFY_FAILED` against the Helpjuice host (workaround: `docs/runbooks/macos-shell.md`).
 - **Base URL:** `<internal-url>
+
+### Before any write — engineering-doc checklist
+
+(Moved from `.claude/rules/engineering-doc-dual-home.md`, <clickup-task-id>. The rule itself says *when* a voipdoc is owed; this is *how*.)
+
+1. **Look before creating.** `GET /categories` is paginated (~25/page) — walk every `?page=N` before concluding a category is missing, and search existing articles (`GET /articles?category_id=1366806&limit=50`, `GET /search?query=...`) so you don't duplicate. (<clickup-task-id> created two duplicate "Automations and Engineering" categories by skipping pagination.)
+2. **Create** with `POST /articles` and `{"article":{"name":"<title>","body":"<html>","category_id":1366806,"accessibility":0,"published":true,"description":"<one line>","tag_names":["alpha","beta"]}}`. `body` is raw HTML. Keywords are written as **`tag_names`** — `keywords` is silently ignored (see "Keywords (a.k.a. tags)").
+3. **Update** with `PUT /articles/<id>` wrapped under `article`. **Snapshot `answer.body` first** — there is no revision API. A body PUT on an already-published article **publishes immediately** (see "Update article").
+4. **Visibility:** hold edits with `visibility_id:2`; restore an internal article with **`{"visibility_id":0,"published":true}` — never `visibility_id:1`, which makes it PUBLIC** even if `accessibility:0` is in the same payload.
+5. **Read shape:** `article.answer` is an object — use `article.answer.body` / `.body_txt` (see "Article body shape").
+6. **The public URL is not a staged-vs-live check for an internal article.** `accessibility: 0` articles sit behind a login wall — `curl -s -L <internal-url> returns `<title>Sign in to your account` and neither body. **empirical (2026-07-30), article 2000317.** Open the editor UI if you need certainty.
+7. Body opens with the Scope info-callout (Article Template below); current-state content only. Public URL: `<internal-url>
 
 ## Common Operations
 
@@ -31,15 +59,91 @@
 GET /api/v3/search?query=QUERY
 ```
 
-Returns results ranked by relevance. Response includes `id`, `name`, `slug`, `categories`.
+A hit carries `id, name, slug, url, categories, answer_sample, long_answer_sample, tag_names, is_internal, is_private, is_published, last_published_*` — **no `accessibility`**. `is_internal` is `true` for both Internal (0) and URL-only (4) articles (empirical 2026-10-08: URL-only 3654522, 3579442, 2151896 → `is_internal:true, is_private:false`; private 2603680, 2559764 → `is_private:true`; public 3961989 → both false), so a decision that must exclude URL-only articles needs `GET /articles/<id>`.
+
+Returns results ranked by relevance. The result array is keyed **`searches`** (not `questions`) — `{"meta": {...}, "searches": [{"id", "name", "slug", "tag_names", "answer_sample", ...}]}`. **empirical (2026-05-25):** verified against `<knowledge-base>.helpjuice.com` — `r.get('questions', [])` returns empty on every query; the live key is `searches`. (An older snippet in this runbook used `questions` and silently returned 0 hits — fixed below.)
 
 **Do NOT use** `GET /api/v3/articles?search=QUERY` — it returns results sorted by recency, not relevance, and routinely surfaces unrelated articles.
+
+### Search query length cap — 512 characters (hard 500 above it)
+
+`GET /api/v3/search?query=...` returns **HTTP 500** for any query longer than **512
+characters**. It is a **character** cap, not a word cap — 60 short words (299 chars)
+succeed, one 800-character token fails. The 500's body was not captured (the probe below measured status codes only);
+downstream, n8n surfaces the failure as its own generic
+"The service was not able to process your request", which is what reaches the ClickUp
+error card — that phrasing is n8n's, not Helpjuice's.
+
+**empirical (2026-08-17, re-confirmed 2026-08-18T02:23:53Z, card <clickup-task-id>):**
+
+| query length | HTTP |
+|---|---|
+| 200 | 200 |
+| 511 | 200 |
+| 512 | 200 |
+| **513** | **500** |
+| 600 | 500 |
+| 2,323 (the reported failure) | 500 |
+
+| control | HTTP |
+|---|---|
+| 60 x `word` (299 chars incl. separators) | 200 |
+| one 800-char token | 500 |
+
+(The plan's [P4] ran the same control with a shorter word set — 60 words / 240 chars —
+and also got 200. Both confirm the cap counts characters, not words; the char totals
+differ only because the word sets differ.)
+
+Any caller that forwards free-form user text into `query` MUST cap it. The shared cap +
+error-classifier logic and its regression suite live in
+`n8n/_tests/helpjuice_query_cap_logic.mjs` (`MAX_QUERY_CHARS = 200`, cut on a word
+boundary).
+
+**deployed (2026-08-18T03:25:28Z, card <clickup-task-id>).** The `Helpjuice KB Search` sub-workflow
+(`3PmhgjqQoqZTIQ7J`) now carries the cap live. `PUT /workflows/3PmhgjqQoqZTIQ7J` → 200,
+`updatedAt` 2026-08-18T03:25:28.633Z, `versionId` 850b3c90; the mandatory post-PUT re-GET
+confirms `MAX_QUERY_CHARS = 200` in `Extract Keywords` (4 `capQuery(` call sites),
+`classifyHelpjuiceError` in `Sanitize & Retry`, `onError: continueErrorOutput` on both
+`Fetch Helpjuice Articles` and `Retry Helpjuice`, and the two new error branches
+(`-> Sanitize & Retry`, `-> Error Output`). Workflow remained `active` throughout.
+
+**Precedent (<clickup-task-id>, 2026-08-17):** a user pasted a ~245-word compliance
+questionnaire at <internal-bot> in Teams. The keyword-extraction regex fallback emitted a
+2,323-character query, Helpjuice 500'd, and because the fetch node carried no `onError`
+the entire <internal-bot> Handler execution hard-failed — the user got no reply at all.
+Card <clickup-task-id> (2026-08-12) is the same node failing on the same surface.
 
 ### Get article
 
 ```
 GET /api/v3/articles/:id
 ```
+
+#### Doc-driven testing fetch path
+
+The `/sf-smoke-doc` runner uses this endpoint to load an article's text for grammar-based step parsing. Fetch and parse:
+
+```bash
+eval "$($HOME/.claude/scripts/fetch-secrets.sh <knowledge-base>)"
+curl -s "<internal-url> -H "Authorization: $HELPJUICE_API_KEY" \
+  | python3 -c "
+import json,sys
+d = json.load(sys.stdin)
+art = d.get('article', d)
+print(art.get('answer', {}).get('body_txt', ''))
+"
+```
+
+Use `answer.body_txt` (plaintext) for parsing. For slug-to-ID resolution:
+
+```bash
+curl -s "<internal-url> -H "Authorization: $HELPJUICE_API_KEY" \
+  | python3 -c "import json,sys; r=json.load(sys.stdin); [print(a.get('id'), a.get('name')) for a in r.get('searches',[])]"
+```
+
+**empirical (2026-05-18):** article 3727088 (Salesforce Lead Playbook) — `name="Salesforce Lead Playbook"`, `body_txt` length 13800 chars, `accessibility=0`. Referenced by `/sf-smoke-doc` runner in `tests/playwright/sf-smoke-doc.mjs`. Full step-list round-trip documented in `docs/superpowers/specs/evidence/<clickup-task-id>/phase-1-parser-roundtrip.md`.
+
+See `docs/runbooks/sf-smoke-doc.md` for the full fetch path, grammar, and runner usage.
 
 #### Article body shape (gotcha)
 
@@ -102,11 +206,19 @@ PUT /api/v3/articles/:id
 
 **Required wrapper:** Body must be nested under `{"article": {...}}`. Sending `body` at the top level returns 400.
 
-**Draft mode (for review):** Send `body` WITHOUT `published: true` → creates draft revision. Published version stays live.
+**⚠️ Already-published article: a body PUT publishes IMMEDIATELY — there is NO draft-hold via the API.**
+**empirical (2026-06-10, article 1933891, accessibility 1):** `PUT {"article":{"body":"<html>"}}` WITHOUT `published: true` on an already-published, public article updated **and published** the live body — the public `<knowledge-base>.io` page served the new content within ~4 minutes and `accessibility` stayed `1`. The article carries a single `answer.body`; a body PUT overwrites it live regardless of the `published` key. **The earlier "omit `published: true` → draft revision, published version stays live" claim is FALSE for already-published articles** (it holds only for never-published POST drafts — see below). There is **no revisions/versions API** (`/articles/<id>/revisions` and `/versions` both 404), so the prior body is **unrecoverable** once overwritten — `GET` and save the existing `answer.body` BEFORE any PUT if you might need to revert.
 
-**Direct publish:** Send `body` + `published: true` in one call → publishes immediately.
+**`visibility_id: 0` = INTERNAL + published** (the state every "Automations and Engineering" article should be in). The `visibility_id` → `accessibility` map is **0 → 0 (internal, published, staff-only), 1 → 1 (PUBLIC on <knowledge-base>.io), 2 → 2 (private/URL-only)**. Sending `accessibility: 0` in the same payload as `visibility_id: 1` does NOT win — `visibility_id` overrides it silently. **empirical (2026-07-24, article 3895465):** publishing an internal engineering doc with `{"published":true,"visibility_id":1,"accessibility":0}` returned 200 and set `accessibility: 1`, serving it publicly; `{"visibility_id":0,"published":true}` corrected it to `accessibility: 0`, after which an anonymous fetch of the public URL returned the Helpjuice sign-in page instead of the body. A bare `{"accessibility":0}` PUT is a no-op — the field is derived from `visibility_id`, not set directly.
 
-**Does NOT work:** Two-step (body first, then separate `published: true` call) — second call is a no-op on the draft.
+**To hold edits OFF the public site on an already-published article → set `visibility_id: 2` (private/draft).**
+**empirical (2026-06-10):** `PUT {"article":{"visibility_id":2}}` flipped article 1933891 `accessibility` 1→2 and the public URL stopped serving it (anonymous fetch returned a Helpjuice sign-in page; the article body was absent). The new content stays in the (now-private) article for staff review in the KB. Re-publish to the public site with `PUT {"article":{"visibility_id":1,"published":true}}`. For a TRUE draft/revision workflow (stage edits without touching the live body at all), use the Helpjuice **admin editor UI** (`/admin/en_US/questions/<id>`), which versions saves — the v3 API does not expose that.
+
+**Never-published draft (CREATE via POST without `published: true`):** stays a draft until a later `published: true`. This is the ONLY case where "omit `published: true` = draft" holds — and it is CREATE (POST of a brand-new article), not UPDATE (PUT/PATCH of an article that is already live).
+
+**Direct publish:** Send `body` + `published: true` in one call → publishes immediately (same end-state as omitting the key on an already-published article).
+
+**Does NOT work:** Two-step (body first, then separate `published: true` call) — the second call is a no-op.
 
 ### Delete article (DRAFT or published)
 
@@ -125,10 +237,10 @@ Works on both DRAFT and published articles — no distinction at the API level.
 ### List categories
 
 ```
-GET /api/v3/categories
+GET /api/v3/categories?limit=100&page=N
 ```
 
-Returns top-level categories only. **empirical 2026-05-08:** this endpoint returns 25 categories; some technical categories (e.g. `Development`, `443142`) do not appear in the list but ARE accessible via `GET /api/v3/categories/:id` directly. To enumerate the full tree, walk known IDs individually and scrape `category.sub_categories`.
+Paginated — walk `meta.total_pages`. **empirical (2026-10-08, <clickup-task-id>):** the default page size is 25 (`meta.limit: 25`, `total_pages: 10`); `limit=100` is honored (`total_pages: 3`, `total_count: 235`), and the walk returns every category, nested ones included (e.g. `Development` `443142` is present; 26 have `parent: null`). Each row carries `parent {id,name}`, `hierarchy[]`, `accessibility`, and `published_questions[]` / `draft_questions[]` (article stubs incl. secondary-category membership, so their lengths differ from a count of articles whose *main* category is that id — 71 of 235 categories differed). `GET /categories/<id>` exposes no group/user permit list for a private category. *(Superseded 2026-05-08 note: "returns top-level categories only, 25" — that was page 1 of the default page size.)*
 
 ### Create category
 
@@ -200,6 +312,9 @@ Verified 2026-05-02 against article 3795764.
 | Development | `443142` |
 | Automations | `1350391` |
 | Development Guides | `1350540` |
+| Automations and Engineering (internal, engineering docs) | `1366806` |
+| Article: AE Console Release Notes (internal, Sales Management `1348715`; updated by the `ae-release-notes` skill) | `3972268` |
+| Article: AE Console Roadmap (internal, Sales Management `1348715`; updated by the `ae-release-notes` skill) | `3972269` |
 
 Reference article for house style: `1912906` ("Create a KB Article").
 
@@ -229,14 +344,30 @@ Set via JSON fields on POST/PUT:
 | `accessibility` | `1` | **Public** — published to the public `<knowledge-base>.io` site |
 | `accessibility` | `2` | **Private** — draft/hidden, not listed |
 | `accessibility` | `4` | **URL only** — direct-link only, hidden from search; takes its public-vs-internal flavor from the parent category (see "Visibility ↔ category gating" below) |
-| `private_to_groups` | `[group_id, ...]` | Restrict to specific groups (requires `accessibility: 0` or `2`) |
+| `group_ids` / `user_ids` | `[id, ...]` | Grant a private article to groups/users — **write-only** (docs-confirmed: help.helpjuice.com/en_US/api-v3/using-api-v3); reads never return them, so check access with "Per-user access (Helpjuice as the user)" |
 | `is_private` | `true`/`false` | Legacy; prefer `accessibility` |
 
-Example — internal, restricted to <your-org> Staff + GTN Dev Team:
+Example — create a private article granted to MMN Staff (the shape Thread-Learning's `Build Draft Request` sends):
 
 ```json
-{"article": {"accessibility": 0, "private_to_groups": [21308, 25395]}}
+{"article": {"name": "<title>", "body": "<html>", "category_id": 1366806, "accessibility": 2, "visibility_id": 2, "group_ids": [21309]}}
 ```
+
+**`group_ids` grants on create; `private_to_groups` does not.** Grants are checked as a member and a non-member of the group (both viewers), after the approve-style `PUT {"article":{"body":…,"published":true}}` so viewers are eligible (an unpublished private article also needs `admin`/`draft_writer`, see "Measured rules").
+
+**Probe: private grant field on `POST /articles`** (two throwaway articles in category 1366806, then `PUT {body, published:true}`, then `curl -I -u "<user>:" "$B/articles/<id>?api_key=$K"`; both deleted, `GET` → 404)
+
+Captured: 2026-10-08T20:59:28Z
+
+```
+A: {"accessibility":2,"visibility_id":2,"private_to_groups":[21309]} → id 3968139 accessibility 2
+   after publish PUT: accessibility 2, published true
+   heb@mspmedianetwork.com (MMN Staff) 403   <service-email> (<your-org> Staff) 403   ← grant NOT applied
+B: {"accessibility":2,"visibility_id":2,"group_ids":[21309]} → id 3968140 accessibility 2
+   after publish PUT: heb@mspmedianetwork.com 200   <service-email> 403              ← grant applied, and it survives the body+published PUT
+```
+
+> **`accessibility` is READ-ONLY on PUT — write visibility via `visibility_id`.** **empirical (2026-06-09):** `PUT /articles/<id> {"article":{"accessibility":2}}` returns HTTP 200 but the article's `accessibility` stays unchanged (silent no-op). The write-side field is **`visibility_id`** — `PUT {"article":{"visibility_id":2}}` flipped article 3843527 from `0`→`2` (verified via fresh GET). Mapping observed: `visibility_id:1`=public, `visibility_id:2`=private; the integer matches the `accessibility` value it sets. The `accessibility` column above documents the READ shape (and the POST-create shape, where `accessibility` IS honored — verified on the same article's create); on PUT, use `visibility_id`. Pair with `group_ids` / `user_ids` for group-restricted private. (Found setting the AI Acceptable Use Policy to Private — task <clickup-task-id>.)
 
 Current KB split (as of 2026-04-29): **~100 internal**, **~672 public**. Defaults — engineering/automation articles are `accessibility: 0`, customer-facing how-tos are `accessibility: 1`.
 
@@ -249,6 +380,8 @@ HTTP 422 {"accessibility":["Cannot be Public parent being Internal."]}
 ```
 
 Verified 2026-05-03 against article 3796191 in category 1350391 (Automations, accessibility: 0).
+
+**On create the gate is silent.** `POST /articles` with `accessibility: 1` and an internal `category_id` returns HTTP 200 and creates the article with `accessibility: 0` (empirical 2026-10-08: category 1366806 → article 3968157 `accessibility 0`, deleted). The same POST into a public category (443410 Voicemail) created `accessibility 1` (article 3968156, deleted).
 
 To make an article public-but-unlisted, the article needs membership in at least one **public** category. See [Multi-category publishing](#multi-category-publishing) below.
 
@@ -289,7 +422,8 @@ To find every category an article belongs to, query from the **category** side:
 
 ```bash
 # Walk every category and check published_questions for the article id
-for cat_id in $(curl -s "$BASE/categories?per_page=200" -H "Authorization: $K" | jq -r '.categories[].id'); do
+PAGES=$(curl -s "$BASE/categories?limit=100&page=1" -H "Authorization: $K" | jq -r '.meta.total_pages')
+for cat_id in $(for p in $(seq 1 "$PAGES"); do curl -s "$BASE/categories?limit=100&page=$p" -H "Authorization: $K" | jq -r '.categories[].id'; done); do
   curl -s "$BASE/categories/$cat_id" -H "Authorization: $K" \
     | jq --arg id "$ARTICLE_ID" -r '.category | (.published_questions // [])[] | select(.id == ($id | tonumber)) | "\($cat_id)\t\(.url)"'
 done
@@ -309,7 +443,19 @@ done
 | `22433` | Channel Partners | manual |
 | `25395` | GTN Dev Team | `@gtnllc.com` email |
 
-Fetch current list: `GET /api/v3/groups`.
+Fetch current list: `GET /api/v3/groups?limit=100` → `{groups:[{id,name,auto_groups,users,smart_load,created_at}], meta}`. There is no group named "<your-org> Internal"; the automated KB scope of that name is accessibility-based (`knowledge-platform.md` "Automated callers").
+
+**Probe: live groups** (`curl -s "$B/groups?limit=100" -H "Authorization: $K" | jq -c '.groups[] | {id,name}'`)
+
+Captured: 2026-10-08T20:50:21Z
+
+```
+{"id":21307,"name":"White Label Partners"}
+{"id":21308,"name":"<your-org> Staff"}
+{"id":21309,"name":"MMN Staff"}
+{"id":22433,"name":"Channel Partners"}
+{"id":25395,"name":"GTN Dev Team"}
+```
 
 ### Block-level: Internal Info Blocks
 
@@ -370,7 +516,7 @@ Wrap the actual internal HTML in `<div class="raw-html-embed">` so Helpjuice tre
 
 - `GET /articles/:id` (default) — `.article.answer.body` shows the encrypted form.
 - `GET /articles/:id?processed=true` — `.article.answer.processed_body` shows the decrypted inner HTML (API key alone acts as super-admin for decryption).
-- `GET /articles/:id?processed=true` with **HTTP Basic Auth** (`-u "user@email:"`, blank password) — renders as that user; internal blocks only appear if the user is in `data-permitted-groups`. Useful to verify non-superadmin visibility.
+- `GET /articles/:id?processed=true&api_key=<key>` with **HTTP Basic Auth** `-u "<user email>:"` (blank password) renders as that user (Helpjuice "User Identification"). The key MUST go in the `api_key` query param: a key sent as the `Authorization` header replaces curl's Basic header, and the request then runs as the account owner. See "Per-user access (Helpjuice as the user)".
 
 #### Quick authoring example
 
@@ -388,24 +534,123 @@ curl -s "<internal-url> -H "Authorization: $HELPJUICE_API_KEY" \
   | jq -r '.article.answer.body' | grep -o 'data-encrypted-content' # should find 1 match
 ```
 
+## Per-user access (Helpjuice as the user)
+
+Who may see an article is decided by asking Helpjuice as the caller's own Helpjuice user. Every <internal-bot> KB path (Teams, semantic search, the <internal-bot>-gateway) does this through the n8n **Helpjuice Access Check** (`nQfH6pcSmgEwKI0y`) — design, callers and failure behaviour: `docs/runbooks/knowledge-platform.md`.
+
+### The impersonation recipe
+
+```bash
+# K = HELPJUICE-API-KEY (see Auth). The key goes in the QUERY STRING; the user goes in Basic auth.
+curl -s -I -u "<service-email>:" "<internal-url>   # HEAD → 200 visible / 403 not visible / 404 missing
+```
+
+- docs-confirmed: help.helpjuice.com/en_US/api-v3/using-api-v3 "User Identification" — HTTP Basic auth with the user's email and a blank password makes Helpjuice "perform the request as if that user were logged in".
+- **Header key + Basic user does NOT impersonate.** curl's `-H "Authorization: <key>"` replaces the `-u` Basic header, so the request runs as the account owner; Basic alone (no key) is 403 for everyone. This is why the 2026-06-28 probe ([P8], spec `2026-06-28-<internal-bot>-gateway-per-user-identity-scoping-design.md`) and an earlier 2026-10-08 probe both concluded "no render-as-user path" — both sent the key as a header.
+- The email must match the Helpjuice user's stored email exactly as stored: `DENA@<your-org>.CO` → 401. Resolve it first with `GET /users?filter[email]=<email>` (the filter itself is case-insensitive) and impersonate with the returned `email`.
+- Unknown or deactivated users → **401** (`<service-email>`; also kevin@, veronica@, victoria@ and two non-staff accounts that `/users` still lists). Being listed in `/users` is therefore not proof of an active account: verify a caller by making one request as them (the Access Check uses `HEAD /articles?limit=1`) before trusting their role.
+- `HEAD` returns the same status with no body.
+
+**Probe: impersonated article reads follow the caller's permissions** (`curl -s -o /dev/null -w '%{http_code}' -u "<user>:" "$B/articles/<id>?api_key=$K"` for header-key vs query-key, then query-key across users)
+
+Captured: 2026-10-08T19:00Z
+
+```
+hdr-key + -u dena 2402244: 200        (runs as owner)
+-u dena only      2402244: 403
+qkey no user      2402244: 200
+qkey + dena       2402244: 403
+qkey + DENA@<your-org>.CO 2402244: 401
+HEAD 1998780 dena 200 | marissa 200      HEAD 2402244 dena 403 | marissa 200      HEAD 999999999 dena 404
+```
+
+### What the API does not expose
+
+`GET /articles/<id>` has no grant list (no `private_to_groups` / `private_to_users` / `group_ids` / `user_ids`) on any of the 88 private articles, raw, `?processed=true` or `?include=...`; `/articles/<id>/groups|users|permissions|visibility|accesses` → 404; `/api/v2/articles/<id>` → 404; `/api/v2/questions/<id>` → 403. `group_ids` / `user_ids` are documented as **write** fields only. The grants exist in the admin editor (`/admin/en_US/questions/<id>`: `input[name="article[accessor_ids][]"]`, `data-method="delete"` = granted), which needs a browser session — evidence only, never a runtime source.
+
+### Measured rules (why the Access Check may skip some live calls)
+
+**Probe: impersonated `GET /articles/<id>` vs the admin-UI grant lists** (all 88 private articles × <service-email> viewer/<your-org> Staff, <service-email> admin/<your-org> Staff, marissa@<voip-mcp>.com viewer/White Label Partners, heb@mspmedianetwork.com viewer/MMN Staff; grants scraped read-only from the admin editor with the Playwright-<internal-bot> Edge profile)
+
+Captured: 2026-10-08T19:15Z
+
+```
+compared 352 mismatches 0
+rule: superadmin → all; published private → user in a granted group or user list; unpublished private → also needs admin/draft_writer
+dena 200 68 / 403 20   blaine 200 75 / 403 13   marissa@<voip-mcp>.com 200 4 / 403 84   heb@mspmedianetwork.com 200 54 / 403 34
+1998780 (CompTIA) grants: group_21309, group_21308, user_1158534 → visible to every <your-org> Staff member, dena included
+```
+
+**Probe: non-private articles by role** (impersonated GET; 20 internal drafts, 10 public drafts, 15 internal published, 15 public published, 3 URL-only × 5 users)
+
+Captured: 2026-10-08T19:20Z
+
+```
+published 0/1 and URL-only 4:  200 for viewer, draft_writer, admin, WLP viewer, MMN viewer (all 5)
+unpublished 0/1:               200 admin + draft_writer; 403 every viewer
+```
+
+- **Do not use the impersonated LIST endpoint as the decision.** `GET /articles?filter[accessibility]=2` as a viewer omits 1959447, 1959449 and 2205431 although their grants include <your-org> Staff and the impersonated article GET returns 200; `/search` as the user does filter (dena's "Cloudflare WARP" search omits 2402244).
+- **Users:** 59 in `/users`; roles `superadmin` 8 · `admin` 5 · `draft_writer` 2 · `viewer` 44; groups 21307 White Label Partners, 21308 <your-org> Staff (auto-group `@<your-org>`), 21309 MMN Staff, 22433 Channel Partners, 25395 GTN Dev Team.
+- **Internal blocks:** 98 articles carry `helpjuice-internal-block` elements with `data-permitted-groups`; all of them include 21308 (<your-org> Staff), so no block is hidden from an `@<your-org>` caller today (empirical 2026-10-08, scan of all 2,576 bodies).
+
+### Internal-block stripping (gateway side)
+
+The admin key returns `helpjuice-internal-block` elements with their content decrypted. The gateway strips blocks the caller is not permitted for before returning any article body. A block's permission is gated by `data-permitted-groups` (comma-separated group IDs) and/or `data-permitted-users` (comma-separated user IDs). A block with neither attribute is staff-wide. Stripping is depth-aware and recurses into permitted blocks so nested blocks with stricter permissions are independently evaluated. Group IDs in `data-permitted-groups` are the same IDs returned by `GET /users` in the `groups[].id` array (e.g. `21308` = <your-org> Staff).
+
 ## Article Template
 
 **Every article body starts with a blue Info Callout containing the Scope block — never a plain `<h2>Scope</h2>`.** Use a green Success Callout for discrete requirement lists, and a red Danger Callout for warnings. Source: article 1912906.
 
 ### Scope (required — blue Info Callout)
 
+**Exactly two lines: `Intended Audience` + one sentence.** No `Time to read`, no
+`Prerequisites`, no `Outcome` — prerequisites belong in the separate green Requirements
+callout below.
+
 ```html
 <div class="helpjuice-callout info">
 <div class="helpjuice-callout-body">
 <h3 id="scope-0" data-toc="false">Scope</h3>
-<p><strong>Intended Audience:</strong> <!-- e.g. Engineering Staff, All Employees, Tier 2+ Technicians --></p>
-<p><strong>Time to read:</strong> <!-- e.g. 5 minutes --></p>
-<p><strong>Prerequisites:</strong> <!-- e.g. ClickUp access, Azure CLI configured --></p>
-<p><strong>Outcome:</strong> <!-- one sentence — what the reader can do after --></p>
+<p><strong>Intended Audience: </strong><!-- controlled label — see below --></p>
+<p><!-- one sentence describing what the article covers --></p>
 </div>
 <div class="helpjuice-callout-delete"> </div>
 </div>
 ```
+
+**Verified against ground truth** (empirical (2026-07-30): `GET /articles/1912906?processed=true`,
+first callout extracted verbatim):
+
+```html
+<p><strong>Intended Audience: </strong>Solutions Hub Department</p>
+<p>This article outlines how to create a knowledgebase article according to <your-org> standards. All articles should match the standards outlined here before being submitted for review.</p>
+```
+
+#### `Intended Audience` is a controlled vocabulary — not free text
+
+Resolve to the **tightest group that actually performs or needs the process**:
+
+- **Department** — the active `SFDC_Employee__c.Department__c` picklist: Administration ·
+  Client Experience · Client Success · Core Services Engineering · Development · ELT · Finance ·
+  Human Resources · Marketing · MSP Media Network · Operations · Sales · Solutions Hub ·
+  Technical Services · Telco Services.
+- **Role** — a specific role that owns the process regardless of department.
+- **Broad / external** — All Users · White Label Partners · Channel Partners · Customers.
+
+Invented descriptors are invalid. `Engineering Staff`, `Engineering`, and
+`<your-org> engineers who operate …` are **NOT** valid labels — resolve to the real department
+(e.g. `Core Services Engineering`). Several existing articles in the "Automations and
+Engineering" category carry invalid labels; do not pattern-match off them, they are drift
+pending cleanup.
+
+> ⚠ **This block previously documented a four-field Scope** (`Intended Audience` /
+> `Time to read` / `Prerequisites` / `Outcome`) with `Engineering Staff` as an example — both
+> contradicted article 1912906. Corrected 2026-07-30 after the divergence was caught mid-authoring.
+> Per the `docs` skill: **1912906 wins; fix the runbook.** A `scripts/kb-scope-drift-check` guard to catch this
+> automatically is **proposed, not built** — `ls scripts/kb-scope-drift-check` returns
+> "No such file or directory" (verified 2026-07-30). Until it exists, re-read 1912906 when
+> touching this template.
 
 ### Requirements (optional — green Success Callout)
 
@@ -935,7 +1180,7 @@ curl -s "<internal-url> \
 
 - **No Bearer prefix:** `Authorization: Bearer $KEY` returns "Not allowed". Use `Authorization: $HELPJUICE_API_KEY` (raw key, no prefix). All examples in this runbook follow this pattern.
 - **POST also needs `{"article": {...}}` wrapper:** Same as PUT. Sending `name`/`body`/`category_id` at the top level returns 500 with no helpful error message.
-- **Draft vs publish:** Default to draft mode (omit `published: true`) unless explicitly told to publish. Bot proposes, human approves.
+- **Draft vs publish:** "Omit `published: true` = draft" holds ONLY for **CREATE (POST of a never-published article)**. On an **already-published article, a body PUT/PATCH publishes immediately** (empirical 2026-06-10 — see Update article section). To hold edits off the public site on a live article, set `visibility_id: 2` (private/draft), not key-omission.
 - **`published: true` alone (no body)** → no-op, article stays as-is.
 - **Article body is HTML**, not markdown.
 - **`GET /api/v3/articles` list: `slug` is None.** The list endpoint returns a `url` field (e.g., `<internal-url>) but `slug` is always null. To build public URLs, extract the path from `url` and transform: `<internal-url>` + path after `/en_US`.
@@ -944,7 +1189,8 @@ curl -s "<internal-url> \
 
 | Symptom | Resolution |
 |---------|------------|
-| Article update succeeds but published version unchanged | You sent `body` without `published: true` — creates a draft revision only. Include `published: true` in same call to publish |
+| Body PUT on a live article unexpectedly went PUBLIC | Expected — a body PUT on an already-published article publishes immediately regardless of the `published` key (empirical 2026-06-10, article 1933891). To stage edits without going live, set `visibility_id: 2` first (or edit in the admin editor UI). Key-omission does NOT create a draft on a live article. |
+| Need to hold edits on a live article for review | `PUT {"article":{"visibility_id":2}}` → private/draft (off public site); re-publish with `{"visibility_id":1,"published":true}`. No API revision history exists — snapshot `answer.body` before editing if you may revert. |
 | Two-step update (body first, then `published: true`) no-ops | Second call is a no-op on the draft. Must send body + `published: true` in a single call |
 | `GET /articles?search=QUERY` returns irrelevant results | Use `GET /search?query=QUERY` instead — articles endpoint sorts by recency, search endpoint sorts by relevance |
 | 401 Unauthorized | Vault secret expired or wrong. Re-fetch: `eval "$($HOME/.claude/scripts/fetch-secrets.sh <knowledge-base>)"` |
@@ -953,14 +1199,14 @@ curl -s "<internal-url> \
 
 <internal-bot> detects a digest reply from <your-name> (Phase 4 trigger — see `docs/runbooks/<internal-bot>-feedback.md`), then runs the following sequence:
 
-1. **Draft creation** — POST a new article as draft (omit `published: true`) OR PATCH an existing article with new content. Both paths use the `{"article": {...}}` wrapper.
+1. **Draft creation** — POST a **new** article as draft (omit `published: true`). ⚠️ The "PATCH an existing article" path does NOT produce a draft — a body PATCH on an already-published article publishes immediately (empirical 2026-06-10; see Update article section). For an edit-an-existing-article proposal flow, set `visibility_id: 2` to hold it off the public site until approval. Both paths use the `{"article": {...}}` wrapper.
 2. **Adaptive Card proposal** — bot posts a card to the RD Private channel with the draft title, proposed category (friendly name from `n8n/_data/helpjuice-categories.json`), and Publish / Discard buttons. If the Claude-suggested `category_id` is not in the JSON seed, the card shows `Category #<id>` and an override picklist of known IDs.
 3. **On Publish** — `PATCH /api/v3/articles/:id` with `{"article": {"published": true}}`. Supabase row status updated to `published` first (claims the proposal); Helpjuice call second. If Helpjuice fails, retry inline; on exhaustion, revert Supabase status to `pending_approval`.
 4. **On Discard** — `DELETE /api/v3/articles/:id`. Supabase row updated to `discarded` first; Helpjuice DELETE second. 404 on DELETE is treated as success (already deleted).
 
 **Category seed file:** `n8n/_data/helpjuice-categories.json` — static lookup for friendly names and the override picklist. Unknown IDs are flagged via `proposed_category_id_unknown=true` on the Supabase `cloudie_doc_proposals` row; no hard rejection.
 
-**Refresh procedure:** `GET /api/v3/categories?per_page=200` returns top-level categories only. **empirical 2026-05-08:** this endpoint returns 25 categories; some technical categories (e.g. `Development`, `443142`) do not appear in the list but ARE accessible via `GET /api/v3/categories/:id` directly. To enumerate the full tree, walk known IDs individually and scrape `category.sub_categories` field. Update the JSON file periodically.
+**Refresh procedure:** walk `GET /api/v3/categories?limit=100&page=N` over `meta.total_pages` (see "List categories" — `per_page` is ignored; every category, nested included, is returned across the pages). Update the JSON file periodically.
 
 **Auth:** service-role Supabase key for all PostgREST calls (RLS policy on `cloudie_digest_cache` is service-role only). `docs/runbooks/<internal-bot>-feedback.md` Phase 4 already documents service-role usage; Phase 5 inherits.
 

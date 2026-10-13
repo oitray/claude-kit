@@ -9,7 +9,7 @@
 - **Secret names:** `CLOUDFLARE-GLOBAL-API-KEY` (full admin), `CLOUDFLARE-API-TOKEN` (scoped, no DNS write), `CLOUDFLARE-ACCOUNT-ID`
 - **Email:** `<your-admin-email>`
 - **Env var:** `$CF_KEY` + `$CF_EMAIL` (Global Key) or `$CF_API_TOKEN` (scoped token)
-- **Fetch creds (Global Key):** `export CF_KEY=$(AZURE_CONFIG_DIR=~/.azure-admin az keyvault secret show --vault-name <credential-vault> --name CLOUDFLARE-GLOBAL-API-KEY --query value -o tsv) CF_EMAIL=<your-admin-email>`
+- **Fetch creds (Global Key):** `export CF_KEY=$(AZURE_CONFIG_DIR=<azure-config-dir> az keyvault secret show --vault-name <credential-vault> --name CLOUDFLARE-GLOBAL-API-KEY --query value -o tsv) CF_EMAIL=<your-admin-email>`
 - **Auth headers (Global Key):** `-H "X-Auth-Key: $CF_KEY" -H "X-Auth-Email: $CF_EMAIL"`
 - **Auth headers (Token):** `-H "Authorization: Bearer $CF_API_TOKEN"`
 - **CLI:** `wrangler` (Cloudflare's official CLI)
@@ -72,6 +72,7 @@ wrangler tail <worker-name>
 | Zone: <your-org> | `<cloudflare-id>` |
 | Zone: <voip-mcp>.com | `<cloudflare-id>` |
 | Zone: <knowledge-base>.io | `<cloudflare-id>` |
+| Zone: <your-other-org> | `<cloudflare-id>` |
 
 ## Gotchas
 
@@ -104,7 +105,7 @@ Pages API and `wrangler pages` require the **Global API Key** — the scoped API
 
 ```bash
 # Wrangler env vars for Global Key auth (NOT CLOUDFLARE_API_TOKEN)
-export CLOUDFLARE_API_KEY=$(AZURE_CONFIG_DIR=~/.azure-admin az keyvault secret show --vault-name <credential-vault> --name CLOUDFLARE-GLOBAL-API-KEY --query value -o tsv)
+export CLOUDFLARE_API_KEY=$(AZURE_CONFIG_DIR=<azure-config-dir> az keyvault secret show --vault-name <credential-vault> --name CLOUDFLARE-GLOBAL-API-KEY --query value -o tsv)
 export CLOUDFLARE_EMAIL="<your-admin-email>"
 export CLOUDFLARE_ACCOUNT_ID="<cloudflare-id>"
 ```
@@ -141,6 +142,78 @@ curl -s -H "X-Auth-Key: $CF_KEY" -H "X-Auth-Email: $CF_EMAIL" \
 | Project | Domain | Purpose |
 |---------|--------|---------|
 | `ns-slack-signup` | `slack.<knowledge-base>.io` | NS User Group Slack self-signup form |
+| `<your-other-org>` | `<your-other-org>`, `www.<your-other-org>` | <your-other-org> marketing site (Vite/React SPA + Supabase) |
+| `review-sheets` | `review-sheets.pages.dev` | Internal review/approval sheets — **Access-gated to @<your-org>** (see below) |
+
+### Review Sheets — @<your-org>-gated static hosting
+
+Host for interactive **review/approval sheets** (self-contained HTML artifacts — decommission
+scopes, flow/field inventories, audit results) that need sharing with <your-org> staff **without** a
+Claude Team plan or a GitHub account. GitHub Pages can't gate to a non-GitHub email domain;
+Cloudflare Access + the existing Entra IdP can — silent M365 SSO, `@<your-org>` only.
+
+**Publish** (`empirical (2026-07-08)`, motivated by <clickup-task-id>'s lead-decommission approval sheet):
+
+```bash
+~/.claude/bin/publish-review.sh <file.html> [more.html ...]   # deploy + gate + print URLs
+~/.claude/bin/publish-review.sh --list                        # list published sheets
+```
+
+The `/publish-review` slash command wraps it. The script is idempotent — ensures the Pages
+project + Access app exist, keeps a persistent build dir (`~/.claude/review-sheets/public`,
+gitignored) so prior sheets survive, regenerates the landing index, deploys with the Global Key,
+prints the gated URLs.
+
+**Before uploading internal sheets:** verify the Access app, domain coverage, allow policy and
+Entra IdP against the rows below. The script checks whether an Access app exists; it does not
+validate an existing app's policy. Use only harmless content to establish and verify gating on
+both the apex and the deployment's preview hostname before uploading internal content. Any
+production setup or corrective write requires explicit approval before execution.
+
+**Access gating** (`empirical (2026-10-05)`: `GET /accounts/<acct>/access/apps`, `/access/apps/<id>/policies`, `/access/identity_providers/<idp>` and `/pages/projects/review-sheets` match every row below; `curl --max-redirs 0` on the apex and on preview host `09d6b92d.review-sheets.pages.dev` both return `302` to `<your-org>.cloudflareaccess.com`):
+
+| Piece | Value |
+|---|---|
+| Access app | `<your-org> Review Sheets` — id `<azure-uuid>` |
+| Self-hosted domains | `review-sheets.pages.dev` + `*.review-sheets.pages.dev` (covers preview deploys) |
+| Policy | allow `email_domain: <your-org>` |
+| IdP | Entra "Azure AD" `<azure-uuid>` (same IdP as the CF dashboard + Fleet dashboard), `auto_redirect_to_identity: true` (silent SSO) |
+| Verify gate | Unauthenticated GET on both apex and preview: require `302` and a `Location` URL with scheme `https` and exact host `<your-org>.cloudflareaccess.com`; fail on any other status or redirect |
+
+Capture and validate the redirect for each hostname, using the harmless probe's URL before
+uploading internal sheets and the published sheet's URL after deployment:
+
+```bash
+SHEET_URL=https://review-sheets.pages.dev/harmless-probe.html
+curl -sS --max-redirs 0 -D gate.headers -o /dev/null "$SHEET_URL" &&
+python3 - <<'PY'
+from pathlib import Path
+from urllib.parse import urlsplit
+
+headers = Path("gate.headers").read_text().splitlines()
+statuses = [line.split()[1] for line in headers if line.startswith("HTTP/")]
+locations = [line.split(":", 1)[1].strip() for line in headers if line.lower().startswith("location:")]
+location = urlsplit(locations[0]) if len(locations) == 1 else None
+assert statuses and statuses[-1] == "302", f"Unexpected status: {statuses}"
+assert location and location.scheme == "https" and location.netloc == "<your-org>.cloudflareaccess.com", f"Unexpected redirect: {locations}"
+print("Access redirect verified")
+PY
+```
+
+**Gotchas** (bind lag `empirical (2026-07-08)`, observed at app create and not re-probed since, because re-probing needs a new Access app; preview-host coverage `empirical (2026-10-05)`, preview host `302`):
+
+- **Access rules were observed to take ~30–60s to bind** after create. Wait and re-check only
+  while the site contains harmless content. An unauthenticated `200` serving internal content
+  is an exposure requiring immediate remediation, not a propagation wait. Stop publishing,
+  report the exposure and obtain explicit production approval before corrective writes.
+- **Preview deploys are a separate hostname.** `<hash>.review-sheets.pages.dev` is NOT covered by an
+  app scoped only to the apex — the `*.review-sheets.pages.dev` wildcard self-hosted-domain closes
+  that gap. Always share the **production** URL (`review-sheets.pages.dev/...`), which `--branch main`
+  guarantees.
+- Content is `@<your-org>`-internal, not public — safe for internal flow/API names, ClickUp IDs, voipdoc
+  IDs; never secrets/credentials.
+
+Related voipdoc: [Review Sheets — @<your-org>-gated hosting for approval sheets (`/publish-review`)](<internal-url>).
 
 ## Email Routing (<knowledge-base>.io)
 
@@ -174,7 +247,7 @@ Cloudflare Email Routing requires replacing the existing MX and SPF records:
 ### Enable and create rule (after DNS changes)
 
 ```bash
-export CF_KEY=$(AZURE_CONFIG_DIR=~/.azure-admin az keyvault secret show --vault-name <credential-vault> --name CLOUDFLARE-GLOBAL-API-KEY --query value -o tsv)
+export CF_KEY=$(AZURE_CONFIG_DIR=<azure-config-dir> az keyvault secret show --vault-name <credential-vault> --name CLOUDFLARE-GLOBAL-API-KEY --query value -o tsv)
 export CF_EMAIL="<your-admin-email>"
 ZONE_ID="<cloudflare-id>"
 
@@ -217,6 +290,110 @@ curl -s -X POST -H "X-Auth-Key: $CF_KEY" -H "X-Auth-Email: $CF_EMAIL" \
   "https://api.cloudflare.com/client/v4/accounts/<cloudflare-id>/email/routing/addresses"
 ```
 
+## Dashboard SSO (M365/Entra)
+
+Cloudflare Dashboard login (`dash.cloudflare.com`) for the `<your-org>` account (`<cloudflare-id>`, plan tier `standard` — Dashboard SSO is free on all plans) is enforced via SSO through the existing Entra "Azure AD" Zero Trust identity provider, on the `<your-org>` email domain. **Enforced 2026-07-02** — connector `<cloudflare-id>`, `enabled: true`, `verification: verified`.
+
+### Enforcement scope
+
+- **Enforced (`<your-org>`):** every `@<your-org>` Cloudflare member logs in via Entra SSO. Roster + Entra-resolution confirmed at enforcement (empirical 2026-07-02): `marissa@`, `steven@`, `jack@`, `alisa@`, `blaine@`, `<your-email>` — all enabled Entra users.
+- **Break-glass #1 — `<your-admin-email>`:** deliberately off the enforced domain; confirmed to have **no** matching Entra identity (empirical 2026-07-02, 0 Graph rows), so it authenticates with a normal Cloudflare dashboard login/password and cannot be SSO-locked-out.
+- **Break-glass #2 — OTP fallback IdP:** the `onetimepin` identity provider remains present as an emergency login path (verified present immediately pre-enforce).
+- **Break-glass #3 — stored API token:** `CLOUDFLARE-SSO-CONNECTOR-TOKEN` in `<credential-vault>` (Account `SSO Connector` write scope). Disables the connector if every browser-based admin is unreachable (see Rollback). Write-capability proven at enforcement via a no-op `PATCH {enabled:false}` dry-run.
+
+### API — connector lifecycle
+
+```bash
+# Create (returns a cloudflare_dashboard_sso=<value> TXT verification code)
+curl -s -X POST -H "X-Auth-Key: $CF_KEY" -H "X-Auth-Email: $CF_EMAIL" \
+  -H "Content-Type: application/json" -d '{"email_domain":"<your-org>"}' \
+  "https://api.cloudflare.com/client/v4/accounts/<cloudflare-id>/sso_connectors"
+
+# List
+curl -s -H "X-Auth-Key: $CF_KEY" -H "X-Auth-Email: $CF_EMAIL" \
+  "https://api.cloudflare.com/client/v4/accounts/<cloudflare-id>/sso_connectors"
+
+# Begin verification (after adding the cloudflare_dashboard_sso=<value> TXT record on the <your-org> zone)
+curl -s -X POST -H "X-Auth-Key: $CF_KEY" -H "X-Auth-Email: $CF_EMAIL" \
+  "https://api.cloudflare.com/client/v4/accounts/<cloudflare-id>/sso_connectors/$ID/begin_verification"
+
+# Enforce
+curl -s -X PATCH -H "X-Auth-Key: $CF_KEY" -H "X-Auth-Email: $CF_EMAIL" \
+  -H "Content-Type: application/json" -d '{"enabled":true}' \
+  "https://api.cloudflare.com/client/v4/accounts/<cloudflare-id>/sso_connectors/$ID"
+
+# Rollback / disable (break-glass token works here too — no browser session needed)
+curl -s -X PATCH -H "Authorization: Bearer $CF_SSO_BREAKGLASS_TOKEN" \
+  -H "Content-Type: application/json" -d '{"enabled":false}' \
+  "https://api.cloudflare.com/client/v4/accounts/<cloudflare-id>/sso_connectors/$ID"
+```
+
+**docs-confirmed:** endpoint shapes per https://developers.cloudflare.com/fundamentals/manage-members/dashboard-sso/ (captured 2026-07-02). **empirical (2026-07-02):** full create → TXT → verify → enforce lifecycle run against the live <your-org> account.
+
+### Gotchas
+
+- Enforcement is **domain-wide**, not per-member — every current and future `@<your-org>` Cloudflare member becomes Entra-gated the moment `enabled:true` lands. Verify every member resolves to a real, enabled Entra identity BEFORE enforcing.
+- The Global API Key is required for the member-invite, connector-create, and enforce writes — the narrower `CLOUDFLARE-API-TOKEN` in this runbook's Auth section has no SSO-connector scope.
+- The TXT record value must include the literal `cloudflare_dashboard_sso=` prefix — pasting only the trailing value fails verification.
+- `/user/tokens/verify` rejects **account-owned** tokens ("Invalid API Token"); confirm an account token's status via `GET /accounts/{id}/tokens/{id}` (`status: active`) or a capability probe, not the user endpoint.
+
+### See also
+
+- Voipdoc (Automations & Engineering, internal): <internal-url>
+
+## Fleet dashboard worker
+
+Read-only Cloudflare Worker serving the live fleet dashboard (epic phase board + active
+queue across ClickUp lists `<clickup-list-id>` + `<clickup-list-id>`) behind Cloudflare Access with
+Entra ID (M365 SSO). The ClickUp token stays server-side; the Worker has two `GET` API
+routes and no write handlers by construction. Source: `services/fleet-dashboard/`.
+ClickUp: <clickup-task-id> (epic <clickup-task-id>).
+
+### Architecture
+
+`browser → Cloudflare Access (Entra IdP) → Worker → ClickUp API`. Access stamps each
+request with a signed `Cf-Access-Jwt-Assertion`; the Worker verifies it (RS256 against
+`https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`) **before** any edge-cache
+lookup (composition is `auth → cache → handler`; the 60 s cache key ignores the auth
+header, which is safe only under that ordering). Full service doc:
+`services/fleet-dashboard/README.md`.
+
+### Worker name / routes / env
+
+| Item | Value |
+|---|---|
+| Worker name | `fleet-dashboard` |
+| Route (Part 2) | `<your-domain>/*` (zone `<your-domain>`; commented in `wrangler.toml` until Part 2) |
+| API routes | `GET /` (dashboard HTML), `GET /api/epic/:id`, `GET /api/queue` — all other/non-GET → 404/405, no upstream call |
+| Vars | `ACCESS_TEAM_DOMAIN` (full team domain incl. suffix), `ACCESS_AUD` (Access app AUD tag), `ENVIRONMENT` |
+| Secret | `CLICKUP_TOKEN` via `wrangler secret put CLICKUP_TOKEN` (from Key Vault `<credential-vault>/CLICKUP-API-KEY`) |
+| Access app | self-hosted `<your-domain>`, Azure AD IdP, policy allow `<your-email>`, session 168 h |
+
+Local dev bypass: `ENVIRONMENT=dev DEV_BYPASS_ACCESS=1 wrangler dev` (fails closed to 403
+if the bypass flag is set in any non-dev environment).
+
+### Part 2 provisioning (interactive — treat as prod-write)
+
+Entra app (`cf-access-fleet-dashboard`, redirect
+`https://<team>.cloudflareaccess.com/cdn-cgi/access/callback`, 12-mo secret →
+`CF-ACCESS-FLEET-ENTRA-SECRET`) → CF Access self-hosted app (record AUD) → DNS proxied
+`fleet` record → Worker vars + secret → uncomment route → `wrangler deploy`. Pattern
+reference: the Dashboard SSO (M365/Entra) section above + <clickup-task-id>. Full checklist:
+`services/fleet-dashboard/README.md` "Part 2 checklist" + the ClickUp card.
+
+### Secret rotation
+
+Rotate `CLICKUP_TOKEN`: `wrangler secret put CLICKUP_TOKEN` with the new Key Vault value
+(no redeploy needed — secrets take effect on the next request). Rotate the Entra client
+secret before its 12-mo expiry: `az ad app credential reset` for `cf-access-fleet-dashboard`,
+update Key Vault `CF-ACCESS-FLEET-ENTRA-SECRET`, and refresh it in the CF Access Azure AD
+IdP config.
+
+### Rollback
+
+`wrangler delete fleet-dashboard` + remove the `fleet` DNS record + disable the Access app.
+Part 1 (repo code) rolls back by reverting the PR — no other service imports it.
+
 ## Resolved Issues
 
 > Log fixes here when an API/CLI/MCP call fails and you figure out why. Future sessions check this before re-investigating.
@@ -224,4 +401,5 @@ curl -s -X POST -H "X-Auth-Key: $CF_KEY" -H "X-Auth-Email: $CF_EMAIL" \
 | Date | Issue | Root Cause | Fix |
 |------|-------|-----------|-----|
 | 2026-04-29 | Scoped API token (`CLOUDFLARE-API-TOKEN`) returned 10000 auth error on DNS record creation | Token had `Zone:Zone:Read` but not `Zone:DNS:Edit` — zone listing worked, DNS writes rejected | Added Global API Key (`CLOUDFLARE-GLOBAL-API-KEY`) with email `<your-admin-email>` for full admin access |
+| 2026-06-20 | <your-other-org> site dead on every host (Netlify apex no response, `.netlify.app` 404) | Production build crashed on boot (`useLayoutEffect` of undefined → infinite reload loop) from hand-rolled rollup `manualChunks` splitting React into a circular chunk graph | Removed custom `manualChunks` (vite.config.ts) → Rollup default; migrated to CF Pages project `<your-other-org>`; apex+www CNAME → `<your-other-org>` proxied, MX untouched |
 | 2026-04-29 | Email routing enable failed with error 2008 on <knowledge-base>.io | Outlook MX records (`<knowledge-base>-io.mail.protection.outlook.com`) conflict with Cloudflare Email Routing — Cloudflare requires its own MX records | DNS change required: swap Outlook MX + SPF for Cloudflare MX + SPF records (see Email Routing section) |

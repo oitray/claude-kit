@@ -1,5 +1,6 @@
 ---
 description: Browse, filter, install, and uninstall OCC catalog tools from the session
+audience: private
 ---
 
 # /catalog — In-Session Tool Management
@@ -25,7 +26,7 @@ Arguments can be combined: `/catalog --category core --installed`
 
 ## Step 1: Load Catalog
 
-Read `~/claude-config/catalog.json`. Extract all entries from `mcpServers` and `plugins`.
+Read `~/<config-repo>/catalog.json`. Extract all entries from `mcpServers` and `plugins`.
 
 ## Step 2: Check Install Status
 

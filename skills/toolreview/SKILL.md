@@ -1,5 +1,6 @@
 ---
 description: Evaluate an external tool/service for addition to OCC or CCA — assesses fit for both AI-assisted and non-AI <your-org> use cases, then orchestrates installation if approved
+audience: shared
 ---
 
 # /toolreview — Tool Evaluation & Onboarding
@@ -47,7 +48,7 @@ Use the Agent tool to dispatch parallel research where tasks are independent:
 5. **CLI/API/SDK search** — check if the vendor offers a CLI tool (`npm search {name}-cli`, `brew search {name}`) or SDK (`npm search {name}`, `pip search {name}`)
 6. **Official MCP check** — check the vendor's GitHub org for an MCP server repo
 7. **Security check** — for npm MCP candidates: `npm audit --json` on the package, check license field, verify publisher identity
-8. **Overlap check** — read `~/claude-config/catalog.json` (both `mcpServers` and `plugins` keys) AND `~/.claude.json` (installed MCP servers) AND `docs/runbooks/` (existing runbooks). Flag any matches or near-matches.
+8. **Overlap check** — read `~/<config-repo>/catalog.json` (both `mcpServers` and `plugins` keys) AND `~/.claude.json` (installed MCP servers) AND `docs/runbooks/` (existing runbooks). Flag any matches or near-matches.
 
 For each MCP candidate found, collect: package name, npm version, weekly downloads, GitHub stars, last commit date, license, auth model, tool count.
 
@@ -156,7 +157,7 @@ Present the plan specific to the outcome type. Always lead with your recommendat
 Present this plan:
 
 1. **Derive catalog key** — lowercase kebab-case from tool name (e.g., `firecrawl`). Confirm with user.
-2. **Add catalog.json entry** — branch `feat/tool-{key}` on `~/claude-config`. Add to `mcpServers` section following existing entry patterns:
+2. **Add catalog.json entry** — branch `feat/tool-{key}` on `~/<config-repo>`. Add to `mcpServers` section following existing entry patterns:
    - `name`, `description`, `recommended: false`, `category` (recommend based on tool type)
    - `authType` matching the tool's auth model (`"key"`, `"oauth"`, or omit for none)
    - `command: "bash"`, `args` with `fetch-secrets.sh` wrapper: `["-c", "eval \"$($HOME/.claude/scripts/fetch-secrets.sh {key})\"; exec npx -y {npm-package}"]` (note: `args` starts with `"-c"`, not `"bash"` — `command` already specifies `"bash"`)
@@ -164,13 +165,13 @@ Present this plan:
    - `requiredKeys`, `keyDescriptions`, `setupInstructions`, `promptExamples` (3 realistic <your-org> examples)
    - `roi` block
    - `keyVaults` mapping each key to vault type (`"user"` → `<credential-vault>`, `"bot"` → `<credential-vault>`, `"company"` → `<credential-vault>`)
-3. **Create tool doc** — `~/claude-config/docs/tools/{key}.md` with capabilities, setup, affected roles, ROI
+3. **Create tool doc** — `~/<config-repo>/docs/tools/{key}.md` with capabilities, setup, affected roles, ROI
 4. **Create runbook** — `docs/runbooks/{key}.md` in the automations repo using the template at `docs/runbooks/_template.md`. Cover all integration paths (MCP tools + API/CLI).
-5. **Commit, push, open PR** — `gh pr create` on claude-config with title `feat: add {name} MCP server to catalog`
+5. **Commit, push, open PR** — `gh pr create` on <config-repo> with title `feat: add {name} MCP server to catalog`
 6. **Merge PR** — admin merge after user confirmation
-7. **Pull latest** — `git pull` on local claude-config to sync
+7. **Pull latest** — `git pull` on local <config-repo> to sync
 8. **Store secret** — run `! store-secret --vault {vault} --name {SECRET-NAME}` (one `--name` per key). The `!` prefix runs it in the user's terminal for secure input. Secret name normalization is handled automatically. Vault determined by `keyVaults` field. For multiple keys in the same vault, batch: `! store-secret --vault {vault} --name KEY1 --name KEY2`.
-9. **Install** — direct user to run `~/claude-config/scripts/catalog.sh add {key}` in their terminal. Pause and wait for them to confirm.
+9. **Install** — direct user to run `~/<config-repo>/scripts/catalog.sh add {key}` in their terminal. Pause and wait for them to confirm.
 10. **Verify** — check `claude mcp list` for the new server, confirm tools appear, run a test operation.
 
 #### If outcome = Runbook Only
@@ -212,7 +213,7 @@ After Gate 2 approval:
 
 1. Write the approved plan to `docs/superpowers/plans/` in the automations repo as `YYYY-MM-DD-toolreview-{key}.md`. This is a spec requirement — the ClickUp task tracks progress, but the spec file is the durable record.
 2. Run `codex:rescue` with this prompt:
-   > Review the /toolreview implementation plan for {Name}. The plan is: {paste the plan steps}. Check for: missing steps, incorrect vault/path references, security concerns with the MCP package, and whether the plan matches the catalog.json entry patterns in ~/claude-config/catalog.json. Report findings.
+   > Review the /toolreview implementation plan for {Name}. The plan is: {paste the plan steps}. Check for: missing steps, incorrect vault/path references, security concerns with the MCP package, and whether the plan matches the catalog.json entry patterns in ~/<config-repo>/catalog.json. Report findings.
 3. Present Codex findings to the user.
 4. Incorporate any adjustments into the plan.
 
@@ -268,13 +269,13 @@ When all steps succeed:
 - **Always lead with recommendations** when asking the user questions. Present your preferred option first with reasoning.
 - **Never run `catalog.sh add` or `setup.sh` from the agent** — these require interactive terminal input. Always direct the user to run them.
 - **Never fabricate API keys or secrets** — always ask the user to provide them.
-- **Never commit directly to main on claude-config** — always use a feature branch + PR.
+- **Never commit directly to main on <config-repo>** — always use a feature branch + PR.
 - **Secret naming convention:** Replace underscores with hyphens for Azure Key Vault (e.g., `FIRECRAWL_API_KEY` → `FIRECRAWL-API-KEY`).
 - **Vault selection:** Determine from `keyVaults` field — `"user"` → `<credential-vault>`, `"bot"` → `<credential-vault>`, `"company"` → `<credential-vault>`.
-- **Azure CLI isolation:** Always use `AZURE_CONFIG_DIR=~/.azure-admin` for vault operations — never bare `az` commands.
-- **catalog.json is on claude-config repo** at `~/claude-config/catalog.json` — not the automations repo.
+- **Azure CLI isolation:** Always use `AZURE_CONFIG_DIR=<azure-config-dir>` for vault operations — never bare `az` commands.
+- **catalog.json is on <config-repo> repo** at `~/<config-repo>/catalog.json` — not the automations repo.
 - **Runbooks are on the automations repo** at `docs/runbooks/` — use the template at `docs/runbooks/_template.md`.
-- **Tool docs are on claude-config repo** at `~/claude-config/docs/tools/`.
+- **Tool docs are on <config-repo> repo** at `~/<config-repo>/docs/tools/`.
 - **If the tool already exists in the catalog** — show the existing entry and ask if the user wants to install it instead. Do not create a duplicate.
 - **If a runbook already exists** — show it and ask if the user wants to update it rather than create a new one.
 - **ClickUp list ID for all tasks:** `<clickup-list-id>` (Automations & Engineering).

@@ -1,13 +1,15 @@
 # Maestro Local Dispatch Runbook
 
+> **Partly retired 2026-09-28.** The `local-<retired-executor>` and `<executor>` executors described below are retired: the local-poller refuses cards carrying either (comment + `blocked`), and their wrappers (`local_<retired-executor>.py`, `local_mlx_*.py`) are deleted. Only `<executor>` and `<executor>` dispatch. History below is unchanged.
+
 > **Owner:** <your-name> | **Last verified:** 2026-05-03
 
 ## Auth
 
-- **Method:** `DefaultAzureCredential` — launchd plist sets `AZURE_CONFIG_DIR=/Users/<your-username>/.azure-admin`
+- **Method:** `DefaultAzureCredential` — launchd plist sets `AZURE_CONFIG_DIR=<azure-config-dir>`
 - **Vault:** `<credential-vault>` (same as cloud orchestrator)
-- **Pattern:** Daemon runs as a user LaunchAgent. `DefaultAzureCredential` picks up the admin config dir from the env var; no manual `az login` needed after initial `~/.azure-admin` setup.
-- **Precedent:** Matches `services/maestro-mcp/com.oit.maestro-mcp.plist:18-25` and `docs/runbooks/maestro.md:18`.
+- **Pattern:** Daemon runs as a user LaunchAgent. `DefaultAzureCredential` picks up the admin config dir from the env var; no manual `az login` needed after initial `<azure-config-dir>` setup.
+- **Precedent:** Matches `services/maestro-mcp/<launchd-label>:18-25` and `docs/runbooks/maestro.md:18`.
 
 ## Architecture Overview
 
@@ -60,7 +62,7 @@ Module constants in `teams_dm.py`: `_REASON_CHAR_CAP`, `_DETAIL_CHAR_CAP`, `_TAI
 
 **Capturing the tail in executors.**
 
-For subprocess-fork executors (`local_claude`, `local_hermes` once wired), use `common.run_with_tail`:
+For subprocess-fork executors (`local_claude`, `local_<retired-executor>` once wired), use `common.run_with_tail`:
 
 ```python
 result = common.run_with_tail(argv, env=env, max_tail_lines=30, max_tail_bytes=4096)
@@ -135,6 +137,13 @@ When debugging a `local_routing_failed dispatch_lock already held` log line, che
 
 ## Message Lifecycle
 
+> **Retired — historical record.** This is the cloud-Function → Service Bus → daemon path,
+> retired 2026-05-05; the daemon that consumed it was deleted 2026-08-13 (<clickup-task-id>). It
+> contradicts "Architecture Overview" above **by design** — that section describes what runs
+> today (`local-poller` → executor wrappers, no broker), this one describes what was replaced.
+> Steps 6-8 (Dispatch Lock, status advance, executor spawn, DM emission) still describe live
+> `local-poller` behavior; steps 1-5 do not. Live detail → `docs/runbooks/local-poller.md`.
+
 1. Cloud Function publishes `DispatchRequestEvent` to `maestro-events` topic with application property `pool='local'` and sets `Dispatch Lock = local-routed:<event_id>` on the ClickUp task.
 2. `sub-local` subscription routes the message to the Studio daemon (SQL filter applied broker-side).
 3. Daemon receives one message (prefetch=0; only receives when an executor slot is free).
@@ -166,4 +175,9 @@ DM format follows the cloud pattern with an added `Executor:` line.
 
 ## Backpressure
 
-Daemon caps concurrent in-flight tasks at 4. `prefetch_count=0`. Receiver is slot-aware — only calls `receive_messages()` when a slot is free. When all 4 slots are full, receiver pauses (does NOT receive). Service Bus broker retains undelivered messages until the daemon resumes. The daemon does NOT receive-then-abandon (that decrements delivery count toward DLQ after 5 attempts).
+> **Retired with the Service Bus path.** The `maestro-local-daemon` slot/receiver model
+> described here no longer exists — the daemon was deleted 2026-08-13 (<clickup-task-id>) and its
+> Service Bus dispatch path was retired 2026-05-05. `local-poller` owns concurrency now;
+> see `docs/runbooks/local-poller.md`. Kept as a record of the retired design.
+
+Daemon capped concurrent in-flight tasks at 4. `prefetch_count=0`. Receiver was slot-aware — only called `receive_messages()` when a slot was free. When all 4 slots were full, the receiver paused (did NOT receive). The Service Bus broker retained undelivered messages until the daemon resumed. The daemon did NOT receive-then-abandon (that decrements delivery count toward DLQ after 5 attempts).

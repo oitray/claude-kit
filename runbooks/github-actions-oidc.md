@@ -16,7 +16,7 @@ The <your-org> automations SP `gh-orchestrator-automations` (appId `<azure-uuid>
 
 ```bash
 APP_ID=<azure-uuid>
-APP_OBJ_ID=$(AZURE_CONFIG_DIR=~/.azure-admin az ad app show --id "$APP_ID" --query id -o tsv)
+APP_OBJ_ID=$(AZURE_CONFIG_DIR=<azure-config-dir> az ad app show --id "$APP_ID" --query id -o tsv)
 NEW_REPO=<your-org>/<repo>
 
 # main branch
@@ -28,7 +28,7 @@ cat > /tmp/fed-main.json <<EOF
   "audiences": ["api://AzureADTokenExchange"]
 }
 EOF
-AZURE_CONFIG_DIR=~/.azure-admin az ad app federated-credential create \
+AZURE_CONFIG_DIR=<azure-config-dir> az ad app federated-credential create \
   --id "$APP_OBJ_ID" --parameters /tmp/fed-main.json
 
 # pull_request from any branch (CI on PR)
@@ -40,16 +40,16 @@ cat > /tmp/fed-pr.json <<EOF
   "audiences": ["api://AzureADTokenExchange"]
 }
 EOF
-AZURE_CONFIG_DIR=~/.azure-admin az ad app federated-credential create \
+AZURE_CONFIG_DIR=<azure-config-dir> az ad app federated-credential create \
   --id "$APP_OBJ_ID" --parameters /tmp/fed-pr.json || true
 ```
 
 Verify SP perms on the target resource group + ACR:
 ```bash
-SP_OBJ_ID=$(AZURE_CONFIG_DIR=~/.azure-admin az ad sp show --id "$APP_ID" --query id -o tsv)
+SP_OBJ_ID=$(AZURE_CONFIG_DIR=<azure-config-dir> az ad sp show --id "$APP_ID" --query id -o tsv)
 SUB=<azure-uuid>
 
-AZURE_CONFIG_DIR=~/.azure-admin az role assignment list --assignee "$SP_OBJ_ID" \
+AZURE_CONFIG_DIR=<azure-config-dir> az role assignment list --assignee "$SP_OBJ_ID" \
   --scope "/subscriptions/$SUB/resourceGroups/<rg>" -o table
 ```
 
@@ -59,7 +59,7 @@ If missing Container Apps Contributor / AcrPush, grant via `az role assignment c
 
 ```bash
 SUB_ID=<azure-uuid>
-TENANT_ID=$(AZURE_CONFIG_DIR=~/.azure-admin az account show --query tenantId -o tsv)
+TENANT_ID=$(AZURE_CONFIG_DIR=<azure-config-dir> az account show --query tenantId -o tsv)
 CLIENT_ID=$APP_ID
 
 gh secret set <credential-env> -R <your-org>/<repo> --body "$CLIENT_ID"

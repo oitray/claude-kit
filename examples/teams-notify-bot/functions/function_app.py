@@ -1,4 +1,4 @@
-"""Azure Functions receiver for the Teams DM bot (bootstrap-only)."""
+"""Azure Functions receiver for the Teams notify bot (bootstrap-only)."""
 import base64
 import datetime
 import json

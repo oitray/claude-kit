@@ -31,5 +31,5 @@ If the app entered `KeepAlive` restart loop, this surfaces the actual startup er
 ## See also
 
 - `docs/runbooks/azure-keyvault.md` — secret rotation pattern
-- `docs/runbooks/<internal-bot>.md`, `docs/runbooks/hermes.md` — app-specific deployment
+- `docs/runbooks/<internal-bot>.md`, `docs/runbooks/<retired-executor>.md` — app-specific deployment
 - `infra/<internal-bot>/` — Bicep templates

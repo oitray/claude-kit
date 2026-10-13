@@ -1,6 +1,7 @@
 ---
 description: Rewrite CHANGELOG.md entries using the <your-org> voice persona
 disable-model-invocation: true
+audience: private
 ---
 Fetch the voice persona from the private GitHub repo and apply it to rewrite CHANGELOG.md entries.
 

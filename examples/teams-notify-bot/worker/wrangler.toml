@@ -1,6 +1,6 @@
 # Cloudflare Workers config for Teams bot receiver.
 # Replace placeholders before `wrangler deploy`:
-#   - <YOUR_WORKER_NAME>     a unique worker name (e.g. teams-dm-bot-<initials>)
+#   - <YOUR_WORKER_NAME>     a unique worker name (e.g. teams-notify-bot-<initials>)
 #   - <YOUR_KV_NAMESPACE_ID> from `wrangler kv:namespace create CONV_REF`
 
 name = "<YOUR_WORKER_NAME>"

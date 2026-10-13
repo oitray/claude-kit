@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Send a Teams DM as the bot. Outbound-only — uses the cached conversation
+# Send a Teams message as the bot. Outbound-only — uses the cached conversation
 # reference written by fetch-conv-ref.sh.
 #
 # Usage:
-#   ./send-dm.sh "message body"           # plain text
-#   ./send-dm.sh --markdown "**hi**"      # rendered as markdown
+#   ./notify-teams.sh "message body"           # plain text
+#   ./notify-teams.sh --markdown "**hi**"      # rendered as markdown
 set -euo pipefail
 
-CONFIG_DIR="${HOME}/.config/teams-dm"
+CONFIG_DIR="${HOME}/.config/teams-notify"
 CONV_REF="${CONFIG_DIR}/conv-ref.json"
 ENV_FILE="${CONFIG_DIR}/env"
-TOKEN_CACHE="${TMPDIR:-/tmp}/teams-dm-token"
+TOKEN_CACHE="${TMPDIR:-/tmp}/teams-notify-token"
 
 [[ -f "${CONV_REF}" ]] || { echo "ERR: ${CONV_REF} not found. Run fetch-conv-ref.sh first." >&2; exit 1; }
 [[ -f "${ENV_FILE}" ]] || { echo "ERR: ${ENV_FILE} not found. See README for required vars." >&2; exit 1; }
@@ -26,7 +26,7 @@ if [[ "${1:-}" == "--markdown" ]]; then
   text_format="markdown"
   shift
 fi
-text="${1:?usage: send-dm.sh [--markdown] \"message\"}"
+text="${1:?usage: notify-teams.sh [--markdown] \"message\"}"
 
 # Reuse cached token. Cache stores access_token + absolute expiry epoch on two
 # lines. Honor the token endpoint's expires_in minus a 60s clock-skew margin.

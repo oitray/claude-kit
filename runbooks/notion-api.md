@@ -8,7 +8,7 @@
 - **Vault:** `<credential-vault>`
 - **Secret name:** `NOTION-API-KEY`
 - **Env var:** `$NOTION_TOKEN`
-- **Fetch creds:** `NOTION_TOKEN=$(AZURE_CONFIG_DIR=~/.azure-admin az keyvault secret show --vault-name <credential-vault> --name NOTION-API-KEY --query value -o tsv)`
+- **Fetch creds:** `NOTION_TOKEN=$(AZURE_CONFIG_DIR=<azure-config-dir> az keyvault secret show --vault-name <credential-vault> --name NOTION-API-KEY --query value -o tsv)`
 - **MCP server:** Notion MCP exists but prefer direct API per project convention
 - **API Version header:** `Notion-Version: 2022-06-28`
 - **Content access:** Managed via Creator dashboard → integration → Content access tab (not per-page "..." menu)

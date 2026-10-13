@@ -1,8 +1,8 @@
 # publish-kit Runbook
 
-> **Owner:** <your-name> | **Last verified:** 2026-04-15
+> **Owner:** <your-name> | **Last verified:** 2026-10-13
 
-Sanitizes internal skills, personas, and runbooks and force-pushes them to the public mirror `<your-username>/claude-kit`.
+Sanitizes allowlisted skills, commands, personas, runbooks and examples and force-pushes them to the public mirror `<your-username>/claude-kit`.
 
 ## Auth
 
@@ -25,24 +25,33 @@ bash scripts/publish-kit/publish.sh
 ### Manual push
 
 ```bash
-# Slash command (wraps below)
-/publish-kit --push
-
-# Direct
-PUBLISH_KIT_REAL_PUSH=1 bash scripts/publish-kit/publish.sh \
-  --push --non-interactive --approve-split stella-fullstack
+PUBLISH_KIT_REAL_PUSH=1 bash scripts/publish-kit/publish.sh --push --non-interactive
+# add --force when the dry-run reports the drift gate (>5 changed files)
 ```
 
-### Auto-sync (default)
+Every split target in the allowlist is already in the last manifest, so no `--approve-split` is needed. A new `split:` entry needs `--approve-split <target>` on its first push.
 
-Any `git commit` via Claude Code's Bash tool that touches a watched path triggers the PostToolUse hook in `.claude/settings.json`, which runs `scripts/publish-kit/post-commit-hook.sh`.
+### Publishing is manual
 
-**Watched paths:**
-- `.claude/personas/*.md`
-- `docs/runbooks/*.md`
-- `skills/*/SKILL.md`
+There is no auto-sync. The PostToolUse hook and `scripts/publish-kit/post-commit-hook.sh` from `91f57c31c` stayed on branch `fix/publish-kit-auto-sync` and never reached `main` (empirical (2026-10-13): `git merge-base --is-ancestor 91f57c31c origin/main` → not an ancestor; no `publish-kit` entry in any `settings*.json`). There is also no `/publish-kit` slash command. Run the dry-run, review the diff, then the manual push above.
 
-Hook does NOT fire on GitHub PR merges — only on local `git commit`.
+## Allowlist categories
+
+| Key | Source (first found wins) | Published to |
+|---|---|---|
+| `skills` | `.claude/publish-kit/public/skills/<name>` → `~/.claude/skills/<name>` | `skills/<name>/` |
+| `commands` | `.claude/publish-kit/public/commands/<name>.md` → `~/.claude/commands/<name>.md` | `commands/<name>.md` |
+| `personas` | `.claude/publish-kit/public/personas/` → `.claude/personas/` → `~/.claude/personas/` | `personas/` |
+| `runbooks` | `.claude/publish-kit/public/runbooks/` → `docs/runbooks/` | `runbooks/` |
+| `examples` | `examples/<dir>/` in this repo (dir walk, dotfiles + symlinks skipped) | `examples/<dir>/` |
+
+**Public variants.** `.claude/publish-kit/public/<category>/` holds hand-written public copies of items whose private original is too coupled to internal tooling for sanitize or a transform. A variant overrides the private source of the same name; the original is never read. Current variants: `commands/session-handoff.md`, `commands/session-pickup.md` (originals live in `<your-org>/<config-repo>` `commands/` and stay private: ClickUp scope lookup, Key Vault, tmux/iTerm renaming, stop-hook and `/sweep` coupling). The variants keep the core contract — write/read `docs/handoffs/<scope>.md` with goal, state, in-flight reasoning, blockers, next step, key context and history — with the scope taken from an explicit slug or the branch name. When an original changes behavior, update its variant by hand.
+
+**Commands** must carry YAML frontmatter with `description` (frontmatter validator, doc type `command`).
+
+**Personas:** none publish. The five legacy personas (flo-rivers, holly-helpdesk, paige-turner, stan-dardson, stella-fullstack) were retired 2026-04-28; they, the `stella-consolidate` transform and its internal-refs exemptions were removed 2026-10-13 (<clickup-task-id>). Their names stay in `internal-refs.yml` `tools:` as leak detectors.
+
+**Runtime output dirs are never copied.** Directory sources (skills) are copied with `copy_tree`, which drops dotfiles/dot-dirs and any directory named in `DEFAULT_EXCLUDE_DIRS` (`working`, `__pycache__`, `node_modules`) or the allowlist's top-level `exclude_dirs:` list, at any depth. `toolreview` writes `working/<tool>-review.md` beside its `SKILL.md`; before this, that file reached the snapshot and failed the frontmatter validator on every run.
 
 ### Force full rebuild
 
@@ -68,13 +77,15 @@ Bumping `.claude/publish-kit/sanitize.yml` `version:` auto-forces a full rebuild
 
 1. **Snapshot** — copy allowlisted sources into a temp dir
 2. **Sanitize** — apply `sanitize.yml` regex rules (PII, internal URLs, product names)
-3. **Scan** — `scan.py` post-sanitize leak detector; fails on hit
-4. **Validate** — `frontmatter.py` + `internal-refs.py` linters
-5. **Transform** — e.g. `stella-consolidate.py` merges 3 internal skills → 1 public persona
-6. **Manifest diff** — compare against `.last-manifest.json`; no-op if unchanged
-7. **Drift gate** — abort if >5 files changed unless `--force`
-8. **Clone + overlay** — clone `<your-username>/claude-kit`, strip published dirs, overlay snapshot; preserves `README.md`, `LICENSE`, `.github/`
-9. **Force-push** — single squashed commit as `publish-kit@local`
+3. **Transform** — `split:` entries run `transforms/<name>.py` (e.g. `maestro-local-dispatch-generic.py` keeps only its listed H2 sections, so sections added to the private runbook later stay private until reviewed)
+4. **Delink** — `delink.py` turns relative links whose target is not in the snapshot (private plans, specs, unpublished runbooks) into plain text and logs each one as `delink: <file> -> <href>`
+5. **Validate** — `frontmatter.py` + `internal_refs.py` linters
+6. **Scan** — `scan.py` post-sanitize leak detector (detectors + `deny.txt`); fails on hit
+7. **Manifest diff** — compare against `.last-manifest.json`; no-op if unchanged
+8. **Drift gate** — abort if >5 files changed unless `--force`
+9. **Changelog** — `CHANGELOG.md` at the repo root is regenerated from the manifest diff each run (it lists `commands/` like any other path); `README.md` is not generated — the remote copy is preserved
+10. **Clone + overlay** — clone `<your-username>/claude-kit`, strip published dirs, overlay snapshot; preserves `README.md`, `LICENSE`, `.github/`
+11. **Force-push** — single squashed commit as `publish-kit@local`
 
 ## Gotchas
 
@@ -122,3 +133,5 @@ For complete rollback of the public repo to pre-publish state, the original scaf
 | 2026-04-15 | Hook caused `Unterminated string` JSON error | Inline regex with escapes in settings.json | Moved logic to `post-commit-hook.sh`, hook just calls the script |
 | 2026-04-15 | Codex review of snapshots stalled indefinitely | `codex exec` blocks reading stdin | Switched to inline grep audits with `sanitize.yml` bumped to v4 |
 | 2026-04-15 | Bare "<your-name>" leaked through v3 sanitizer | Only `<your-name>` full-name rule | Added `personal-firstname` + possessive + `<author>-voice` token rules |
+| 2026-10-13 | Dry-run failed on `skills/toolreview/working/powershell-docs-review.md` (no frontmatter); 5 retired personas → `source not found`; `salesforce-cli.md` links to private plans/specs failed the link check; `maestro-local-dispatch` gained internal sections after its first publish (internal-refs hits); `slack-api.md` carried a personal admin mailbox (scan deny-list hit) | `cp -R` copied runtime output; allowlist never pruned after the 2026-04-28 persona retirement; the transform was a strip-list | `copy_tree` exclusion + `exclude_dirs`; personas + `stella-consolidate` removed; `delink.py` stage; maestro transform switched to a keep-list; `personal-family-email`/`-domain` sanitize rules (v8); v9 rules for the isolated Azure CLI config dir, internal launchd labels, sister-org names, the retired executor, private config-repo names, brand/org tokens inside identifiers, staff handles, tenant subdomains and long task IDs; `commands` category + public variants (<clickup-task-id>) |
+| 2026-05-26 | Link extraction was regex-based (false-flagged links inside code fences; missed reference-style links) | `LINK_RE` scanned raw text incl. code blocks | Replaced with markdown-it-py CommonMark AST walk (`extract_links`); links in code fences/inline-code no longer flagged, reference links now covered, images excluded by token type, `%`-encoded paths unquoted before resolution (<clickup-task-id>). The publish python must satisfy `scripts/publish-kit/requirements.txt` (`pip install -r`) — `markdown-it-py` is now required by the Validate stage. |

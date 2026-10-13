@@ -15,7 +15,7 @@
 
 ## Common Operations
 
-[5-10 most frequent operations with exact commands/params, grouped by mutation risk so future readers know what's safe to run without approval. Every command line gets a source label per `.claude/rules/runbook-citation.md`.]
+[5-10 most frequent operations with exact commands/params, grouped by mutation risk so future readers know what's safe to run without approval. Every command line gets a source label per `.claude/rules/evidence-discipline.md`.]
 
 ### Auth (one-time per machine)
 

@@ -1,6 +1,8 @@
 # SimpleSat API Runbook
 
-> **Owner:** <your-name> | **Last verified:** 2026-04-30
+> **Owner:** <your-name> | **Last verified:** 2026-04-30 (API); 2026-10-10 (consumers, <clickup-task-id>)
+
+> **No live n8n consumer.** The `/accountcheck` <internal-bot> command (card <clickup-task-id>, #276, 2026-04-30) that this runbook was written for was never deployed. It was committed with placeholders: the router's `Execute Account Check` node targeted `ACCOUNT_CHECK_WORKFLOW_ID` (`git show 15f7f359b:n8n/<internal-bot>-simple-command-router.json`), and the export's SimpleSat credential id is `SIMPLESAT_CRED_ID`, no live workflow is named `<internal-bot>: Account Check`, and neither the Bot Handler nor `<internal-bot>: Simple Command Router` routes `accountcheck` (empirical (2026-10-10): scan of all 151 live workflows; `GET /workflows?name=<internal-bot>%3A%20Account%20Check` → `[]`). Its three Salesforce nodes used the `salesforceOAuth2Api` credential deleted on 2026-10-10 (<clickup-task-id>). It was archived as `n8n/archive/<internal-bot>-account-check-retired-<clickup-task-id>.json`, and the `accountcheck` row in Supabase `cloudie_commands` was disabled so `/help` stops offering it (`services/<internal-bot>/db/0013_retire_dead_commands.sql`). Account health questions go to the SF Advisor (`<internal-bot>-sf-advisor.md`) or the `/sf-account-risk-analyst health` skill. A rebuild would run its Salesforce reads as the requesting user through `<internal-bot>: SF User Session` (`CwKQdPaLxzvSfwmz`), since cases are visible per user.
 
 ## Auth
 
@@ -8,7 +10,7 @@
 - **Vault:** `<credential-vault>`
 - **Secret name:** `SIMPLESAT-API-KEY`
 - **Env var:** `$SIMPLESAT_API_KEY` after fetch
-- **Fetch creds:** `AZURE_CONFIG_DIR=~/.azure-admin az keyvault secret show --vault-name <credential-vault> --name SIMPLESAT-API-KEY --query value -o tsv`
+- **Fetch creds:** `AZURE_CONFIG_DIR=<azure-config-dir> az keyvault secret show --vault-name <credential-vault> --name SIMPLESAT-API-KEY --query value -o tsv`
 - **MCP server:** N/A
 
 > **Convention:** API key goes in `X-Simplesat-Token` header. No server-side filtering — all queries pull full result sets and filter client-side.
@@ -56,7 +58,7 @@ curl -s "https://api.simplesat.io/api/surveys/" \
 
 | Symptom | Resolution |
 |---------|------------|
-| 401 Unauthorized | Verify `$SIMPLESAT_API_KEY` is set and valid via `echo $SIMPLESAT_API_KEY`. Re-run `eval "$($HOME/.claude/scripts/fetch-secrets.sh simplesat)"`. |
+| 401 Unauthorized | Check `$SIMPLESAT_API_KEY` is set (`test -n "$SIMPLESAT_API_KEY"`; do not echo it). Re-fetch with the command in the Auth section (`<credential-vault>/SIMPLESAT-API-KEY`). |
 | Empty or partial results | Confirm `page_size=100` in URL and iterate through all pages using `next` field. |
 | `ticket.external_id` doesn't match SF Case ID | Check 15 vs 18 character format. SF IDs may need padding. |
 

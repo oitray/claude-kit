@@ -21,7 +21,7 @@ Two token types — Server Token for sending/reading, Account Token for managing
 | `$POSTMARK_SERVER_TOKEN` | Server token for <knowledge-base> server (sends from `@<knowledge-base>.io`) |
 | `$POSTMARK_VOIPDOCS_SERVER_TOKEN` | Alias for `$POSTMARK_SERVER_TOKEN` (<knowledge-base> server) used by n8n workflows that disambiguate per-server |
 
-- **Fetch creds:** `eval "$(fetch-secrets.sh postmark)"`
+- **Fetch creds:** `export POSTMARKAPP_API_KEY=$(AZURE_CONFIG_DIR=<azure-config-dir> az keyvault secret show --vault-name <credential-vault> --name POSTMARKAPP-API-KEY --query value -o tsv)` and `export POSTMARK_SERVER_TOKEN=$(AZURE_CONFIG_DIR=<azure-config-dir> az keyvault secret show --vault-name <credential-vault> --name POSTMARK-SERVER-TOKEN --query value -o tsv)`
 - **MCP server:** N/A
 - **n8n credential:** `Postmark API` (type `httpHeaderAuth`, ID `YqSILrNP5PiW3NWN`)
 - **API base:** `https://api.postmarkapp.com`

@@ -12,7 +12,7 @@ AI-powered browser automation. Submit a natural-language task; Browser Use's hos
 - **Env var:** `BROWSER_USE_API_KEY`
 - **Fetch creds:**
   ```bash
-  export BROWSER_USE_API_KEY=$(AZURE_CONFIG_DIR=~/.azure-admin az keyvault secret show \
+  export BROWSER_USE_API_KEY=$(AZURE_CONFIG_DIR=<azure-config-dir> az keyvault secret show \
     --vault-name <credential-vault> --name BROWSER-USE-API --query value -o tsv)
   ```
 - **MCP server:** installed (user-scope, `mcp__browser-use__*` tools — see Integrations below)

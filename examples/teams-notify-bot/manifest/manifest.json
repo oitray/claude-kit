@@ -16,11 +16,11 @@
   },
   "name": {
     "short": "{{BOT_NAME}}",
-    "full": "{{BOT_NAME}} — Claude DM bot"
+    "full": "{{BOT_NAME}} — Claude notify bot"
   },
   "description": {
-    "short": "DMs from Claude land here",
-    "full": "Personal bot that receives outbound DMs from Claude Code sessions on your machine via Microsoft Bot Framework."
+    "short": "Messages from Claude land here",
+    "full": "Personal bot that receives outbound messages from Claude Code sessions on your machine via Microsoft Bot Framework."
   },
   "accentColor": "#FF5733",
   "bots": [

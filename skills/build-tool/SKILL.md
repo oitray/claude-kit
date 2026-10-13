@@ -1,17 +1,18 @@
 ---
 description: Add a tool to the <your-org> catalog — discovers public MCPs, evaluates security and utility, then recommends before building
+audience: shared
 ---
 
 Add or install a tool/MCP server for the <your-org> team. Input: $ARGUMENTS
 
 ## Step 1: Check the Catalog
 
-Read `catalog.json` in the claude-config repo root. Search both `plugins` and `mcpServers` keys for a match on the user's request (match by key, name, or description keywords).
+Read `catalog.json` in the <config-repo> repo root. Search both `plugins` and `mcpServers` keys for a match on the user's request (match by key, name, or description keywords).
 
 **If found:**
 1. Show the existing entry (name, description, category, required keys)
 2. Ask: "This already exists in the catalog. Want me to walk you through installing it?"
-3. If yes → instruct the user to open the **VSCode integrated terminal** (`` Ctrl+` ``) and run: `~/claude-config/scripts/catalog.sh add {server-id}`
+3. If yes → instruct the user to open the **VSCode integrated terminal** (`` Ctrl+` ``) and run: `~/<config-repo>/scripts/catalog.sh add {server-id}`
 4. Show the setup instructions from the catalog entry so they know what credentials to have ready
 5. Stop here — do not create a new entry
 
@@ -126,7 +127,7 @@ If the server does not exist yet:
 ## Rules
 
 - Never commit directly to main
-- Never tell users to manually edit `.env` — all key ingestion goes through `~/claude-config/scripts/setup.sh`
+- Never tell users to manually edit `.env` — all key ingestion goes through `~/<config-repo>/scripts/setup.sh`
 - Never run `setup.sh` or `catalog.sh add` from the agent Bash tool — always direct users to the VSCode integrated terminal
 - Never assume visibility — always ask
 - Follow existing `catalog.json` entry structure exactly

@@ -1,8 +1,35 @@
 # UniFi Network Runbook
 
-> **Owner:** <your-name> | **Last verified:** 2026-05-13 (tested against Network 10.2.105 on UCG Ultra)
+> **Owner:** <your-name> | **Last verified:** 2026-06-30 (topology + 6 GHz radio tune verified live; Network 10.2.x on UCG Ultra)
 
-Home UniFi setup: gateway/console + 2 switches + 1 AP. Reachable from primary SSID <VOIP-BRAND> and fallback SSID OITVOIP2 (AT&T, UniFi WAN). All interaction is local-only — UniFi Cloud/UID is NOT used.
+Home UniFi setup: UCG-Ultra gateway/console + U7 Pro AP (wired to UCG) + two **UDB Switches** (model `UDBA69F`, "UniFi Device Bridge"). Reachable from primary SSID <VOIP-BRAND> and fallback SSID VOIP2 (AT&T, UniFi WAN). All interaction is local-only — UniFi Cloud/UID is NOT used.
+
+### Topology + the UDB Switch (read before diagnosing "mesh" issues)
+
+A **UDB Switch** (`UDBA69F`, `type: udb`, shortname `UDBSW`) is a Wi-Fi 7 *receiver* with 8 PoE ports. It is a **client** that wirelessly uplinks to a UniFi **AP** (via WiFi Auto-Link); it does **not** broadcast and **cannot backhaul another UDB Switch** ([roles doc](https://help.ui.com/hc/en-us/articles/32064746398999-Understanding-Connectivity-Roles-of-UDB-Devices), [UDB Switch review](https://dongknows.com/ubiquiti-unifi-device-bridge-udb-switch-review/)). UDB↔UDB P2P is a *different* product (UDB **Pro** / Directional Bridge), not this hardware.
+
+```
+UCG-Ultra (192.168.1.187) ── wire ── U7 Pro AP (192.168.0.84, 8c:30:66:54:9d:28)
+                                          ▲ 6 GHz (6e) uplink  ← INTENDED design, not a fallback
+                                          └── FL02SW01 / UDB2 (192.168.0.107, 8c:ed:e1:1a:7b:0a) — cameras
+   ("UDB1" 192.168.0.159, 8c:ed:e1:1a:7a:ae — a 2nd UDB Switch, role unverified, may be offline)
+```
+
+- `FL02SW01.uplink.uplink_mac == U7 Pro MAC` is **correct**. A UDB Switch uplinking to the U7 Pro is the design — do NOT treat it as degraded, and do NOT "restore UDB1" to fix FL02SW01's link (UDB1 is a separate client switch, not a backhaul anchor).
+- Healthy uplink RSSI: **-60 to -65 dBm** (Ubiquiti mesh floor is -70). The dominant lever is the **U7 Pro 6 GHz radio TX power** (see "Tuning the 6 GHz uplink" below).
+
+### Tuning the 6 GHz uplink (raise AP TX power)
+
+The U7 Pro 6 GHz radio (`6e`/`wifi2`) can be pinned to minimum power, which starves the FL02SW01 uplink. Probe the live config:
+
+```bash
+# radio_table[6e]: tx_power_mode (custom|auto|high), tx_power, max_txpower, ap_pwr_type
+UNIFI_BASE_URL="https://${UNIFI_HOST}/proxy/network/api/s/default" bash scripts/unifi/unifi-curl.sh GET "/stat/device/8c:30:66:54:9d:28"
+```
+
+To raise it: `PUT /rest/device/{_id}` with the **full** `radio_table` array, changing only the `6e` entry's `tx_power_mode` to `"high"` (preserve every other field + the other radios verbatim, or `ng`/`na` channels reset). The controller then applies the LPI-capped max (**~21 dBm at 160 MHz**; ~23 dBm ceiling). The `6e` radio carries **0 client stations** (clients live on 2.4/5 GHz), so this is near-zero blast radius — but applying it bounces the 6 GHz radio for a few seconds (cameras reconnect). This edits the **AP**, not the meshed switch, so it does NOT carry the `port_overrides` reprovision hazard.
+
+> **Empirical (2026-06-30, <clickup-task-id>):** FL02SW01 uplink was **-77 dBm** because `6e` was `tx_power_mode: custom, tx_power: 6` (the floor). PUT `6e → high` → controller applied **21 dBm** → uplink **-77 → -63/-64 dBm**, rx ~288 → ~1300-1440 Mbps, stable. `rc: ok`. The gated `apply.sh device.radio` action performs the same PUT: `scripts/unifi/apply.sh device.radio <mac> wifi2 tx_power_mode=high` (dry-run plan), then add `--apply --confirm device.radio`.
 
 ## Auth
 
@@ -10,7 +37,7 @@ Home UniFi setup: gateway/console + 2 switches + 1 AP. Reachable from primary SS
 - **Vault:** `<credential-vault>`
 - **Secret name:** `UNIFI-LOCAL-API-KEY`
 - **Env var:** `$UNIFI_LOCAL_API_KEY`
-- **Fetch creds:** `eval "$($HOME/.claude/scripts/fetch-secrets.sh unifi)"`
+- **Fetch creds:** `export UNIFI_LOCAL_API_KEY=$(AZURE_CONFIG_DIR=<azure-config-dir> az keyvault secret show --vault-name <credential-vault> --name UNIFI-LOCAL-API-KEY --query value -o tsv)`
 - **MCP server:** N/A (shell scripts at `scripts/unifi/`)
 - **Provisioning:** In the UniFi **Network** app → **Settings** → **Control Plane** → **Integrations** → **Create API Key** (console-wide, not per-admin). Save with `store-secret --vault user --name UNIFI-LOCAL-API-KEY`.
 
@@ -88,6 +115,7 @@ Every mutation goes through `apply.sh`. Dry-run by default; execution requires `
 | `client.unblock` | `<macOrId>` | `POST /sites/{id}/clients/{id}/unblock` |
 | `client.set-fixed-ip` | `<mac> <ip>` | legacy `GET /rest/user` (resolve `_id`+`network_id`) → `PUT /rest/user/{_id}` `{use_fixedip:true, fixed_ip, network_id}` (**empirical** 2026-05-13: arcade `b0:6b:11:11:20:5a` → `192.168.0.171`, `rc:ok`) |
 | `device.restart` | `<deviceId>` | `POST /sites/{id}/devices/{id}/restart` |
+| `device.radio` | `<mac> <radioName> <key=value>...` | legacy `GET /stat/device/{mac}` → `scripts/unifi/patch-radio.py` updates only the named `radio_table` entry (others verbatim; `channel`/`ht` as strings) → `PUT /rest/device/{_id}` `{_id, radio_table}`. Exit 3 if the device or radio name is not found. |
 | `speedtest.run` | — | `POST /sites/{id}/speedtest` |
 
 ```bash
@@ -111,9 +139,9 @@ scripts/unifi/apply.sh client.set-fixed-ip b0:6b:11:11:20:5a 192.168.0.171 \
 - The IP must be outside the network's DHCP pool **or** the lease must already belong to this client. UniFi accepts in-pool reservations only if the lease is free or already held by this MAC.
 - Re-PUT of the same `(mac, ip)` is idempotent (server state unchanged); observed API response for repeated same-state PUT is `rc:ok` with `data:[]`.
 
-## Remote access (OITVOIP2 fallback)
+## Remote access (VOIP2 fallback)
 
-The UniFi gateway is hardwired to the AT&T router. When on OITVOIP2 (AT&T LAN), the UniFi WAN IP must be reachable and the UniFi console must allow management on WAN from the AT&T subnet. No VPN is used. Fingerprint pin is the same regardless of network path; `UNIFI_HOST` may need to change to the WAN-side address when on OITVOIP2.
+The UniFi gateway is hardwired to the AT&T router. When on VOIP2 (AT&T LAN), the UniFi WAN IP must be reachable and the UniFi console must allow management on WAN from the AT&T subnet. No VPN is used. Fingerprint pin is the same regardless of network path; `UNIFI_HOST` may need to change to the WAN-side address when on VOIP2.
 
 ## Gotchas
 
@@ -121,7 +149,7 @@ The UniFi gateway is hardwired to the AT&T router. When on OITVOIP2 (AT&T LAN), 
 - **`--pinnedpubkey` is combined with `--insecure`.** UniFi's self-signed cert fails chain validation, so chain is skipped; identity is enforced by the SPKI pin. This is stronger than `--insecure` alone.
 - **v1 integration API is narrow.** Sites/devices/clients only. Events and alarms (and per-site health) require the legacy `/proxy/network/api/s/{site}/` path, accessed with the same key.
 - **Events endpoint 404s on 10.2.x.** Neither v1 nor legacy `/stat/event` is exposed to the integration key on this firmware. Use the UniFi UI for full event history; use `alarms.sh` for actionable issues.
-- **Write allowlist is strict.** `apply.sh` rejects any action not in `ALLOWED=(wlan.toggle client.block client.unblock client.set-fixed-ip device.restart speedtest.run)`.
+- **Write allowlist is strict.** `apply.sh` rejects any action not in `ALLOWED=(wlan.toggle client.block client.unblock client.set-fixed-ip device.restart device.radio speedtest.run)`.
 - **API key rotation.** Rotating the admin's local key revokes in-flight sessions. After rotation: `store-secret --vault ray --name UNIFI-LOCAL-API-KEY`.
 - **Speedtest cadence.** Don't run `speedtest.run` more than once per ~5 min — it saturates the WAN.
 - **Rate limits.** The local API has no documented limit, but 5xx bursts trigger backoff. Scripts cap at 3 retries.
@@ -135,7 +163,7 @@ The UniFi gateway is hardwired to the AT&T router. When on OITVOIP2 (AT&T LAN), 
 | `HTTP 401` from any call | Rotate/regenerate local API key; re-seed `UNIFI-LOCAL-API-KEY` |
 | `HTTP 403` from write ops | Admin role lacks Super Admin or Site Admin → check UniFi Admins |
 | `probe failed: v1 and legacy both unreachable` | `UNIFI_HOST` wrong or firewall blocking; verify `ping $UNIFI_HOST` and port 443 |
-| Works on <VOIP-BRAND>, fails on OITVOIP2 | UniFi WAN management not enabled, or WAN IP changed — check UniFi → Settings → System → Advanced → Device Authentication |
+| Works on <VOIP-BRAND>, fails on VOIP2 | UniFi WAN management not enabled, or WAN IP changed — check UniFi → Settings → System → Advanced → Device Authentication |
 
 ## Resolved Issues
 

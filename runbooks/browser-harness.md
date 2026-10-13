@@ -12,7 +12,7 @@ browser-use/browser-harness is a Chrome DevTools Protocol (CDP) harness for driv
 - **Vault:** `<credential-vault>`
 - **Secret name:** `<api-key-secret>` (Phase 4 copies this to `<credential-vault>` for n8n; that copy is out of scope for Phase 1)
 - **Env var:** `$BROWSER_USE_API_KEY` after fetch
-- **Fetch creds:** `eval "$($HOME/.claude/scripts/fetch-secrets.sh browser-harness)"` (catalog entry added Phase 4)
+- **Fetch creds:** `export BROWSER_USE_API_KEY=$(AZURE_CONFIG_DIR=<azure-config-dir> az keyvault secret show --vault-name <credential-vault> --name <api-key-secret> --query value -o tsv)`
 - **MCP server:** N/A
 
 These are **not** your personal profile and **not** a prod admin account. First launch creates the profile; subsequent launches restore the prior session.
@@ -63,7 +63,7 @@ Instantiate with per-skill defaults:
 | `action_timeout_secs` | 30 | 45 | `ActionTimeout` raised via SIGALRM if a single action exceeds this |
 | `nav_allowlist` | skill-declared hostnames | skill-declared hostnames | `NavViolation` raised on unexpected hostname |
 
-- **`nav_allowlist`** — Each skill declares the exact hostnames it expects to visit (e.g. `login.salesforce.com`, `oit.lightning.force.com`). Any navigation to a hostname outside the allowlist aborts the run immediately and logs `status: "aborted: nav-violation"`.
+- **`nav_allowlist`** — Each skill declares the exact hostnames it expects to visit (e.g. `login.salesforce.com`, `<your-org>.lightning.force.com`). Any navigation to a hostname outside the allowlist aborts the run immediately and logs `status: "aborted: nav-violation"`.
 - **Panic-stop** — `Guard.install_panic_handler(cleanup)` registers a SIGINT handler. `Ctrl-C` logs `status: "panic: SIGINT received"`, calls the cleanup callback (closes Chrome), then calls `os._exit(130)`.
 
 ### Single-attach rule
